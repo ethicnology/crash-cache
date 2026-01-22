@@ -67,6 +67,7 @@ async fn main() {
 
     let addr = settings.server_addr();
     info!(addr = %addr, "Server listening");
+    info!("DSN format: http://<key>@{addr}/<project_id>");
 
     let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
 

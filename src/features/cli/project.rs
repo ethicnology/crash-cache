@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use uuid::Uuid;
 
 use crate::shared::domain::Project;
 use crate::shared::persistence::ProjectRepository;
@@ -20,15 +21,19 @@ pub enum ProjectCommand {
     List,
 }
 
-pub fn handle(command: ProjectCommand, repo: &ProjectRepository) {
+pub fn handle(command: ProjectCommand, repo: &ProjectRepository, server_addr: &str) {
     match command {
         ProjectCommand::Create { id, name, key } => {
+            let public_key = key.unwrap_or_else(|| Uuid::new_v4().simple().to_string());
             let project = Project::new(id.clone())
                 .with_name(name)
-                .with_public_key(key);
+                .with_public_key(Some(public_key.clone()));
 
             match repo.save(&project) {
-                Ok(_) => println!("Project '{}' created successfully", id),
+                Ok(_) => {
+                    println!("Project '{}' created successfully", id);
+                    println!("DSN: http://{}@{}/{}", public_key, server_addr, id);
+                }
                 Err(e) => eprintln!("Failed to create project: {}", e),
             }
         }
@@ -41,13 +46,14 @@ pub fn handle(command: ProjectCommand, repo: &ProjectRepository) {
                 if projects.is_empty() {
                     println!("No projects found");
                 } else {
-                    println!("{:<20} {:<30} {:<20}", "ID", "NAME", "CREATED AT");
-                    println!("{}", "-".repeat(70));
+                    println!("{:<20} {:<34} {:<30} {:<20}", "ID", "PUBLIC_KEY", "NAME", "CREATED AT");
+                    println!("{}", "-".repeat(110));
                     for p in projects {
                         println!(
-                            "{:<20} {:<30} {:<20}",
+                            "{:<20} {:<34} {:<30} {:<20}",
                             p.id,
-                            p.name.unwrap_or_default(),
+                            p.public_key.as_deref().unwrap_or("-"),
+                            p.name.as_deref().unwrap_or("-"),
                             p.created_at.format("%Y-%m-%d %H:%M:%S")
                         );
                     }

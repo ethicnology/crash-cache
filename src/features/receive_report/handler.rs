@@ -159,5 +159,8 @@ fn decompress_if_needed(headers: &HeaderMap, body: &[u8]) -> Result<Vec<u8>, std
 }
 
 async fn health_check() -> impl IntoResponse {
-    StatusCode::OK
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "crash-cache"
+    }))
 }

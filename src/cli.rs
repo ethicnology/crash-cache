@@ -30,7 +30,9 @@ fn main() {
 
     let project_repo = ProjectRepository::new(pool);
 
+    let server_addr = settings.server_addr();
+
     match cli.command {
-        Commands::Project { action } => project::handle(action, &project_repo),
+        Commands::Project { action } => project::handle(action, &project_repo, &server_addr),
     }
 }
