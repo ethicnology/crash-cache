@@ -8,6 +8,14 @@ default = ["sqlite"]
 sqlite = ["diesel/sqlite"]
 postgres = ["diesel/postgres"]
 
+[[bin]]
+name = "crash-cache"
+path = "src/main.rs"
+
+[[bin]]
+name = "crash-cli"
+path = "src/cli.rs"
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -30,3 +38,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 dotenvy = "0.15"
+clap = { version = "4", features = ["derive"] }
