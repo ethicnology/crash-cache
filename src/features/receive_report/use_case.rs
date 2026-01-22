@@ -2,13 +2,16 @@ use sha2::{Digest, Sha256};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{Archive, DomainError, Event, ProcessingQueueItem};
-use crate::shared::persistence::{ArchiveRepository, EventRepository, QueueRepository};
+use crate::shared::persistence::{
+    ArchiveRepository, EventRepository, ProjectRepository, QueueRepository,
+};
 
 #[derive(Clone)]
 pub struct IngestReportUseCase {
     archive_repo: ArchiveRepository,
     event_repo: EventRepository,
     queue_repo: QueueRepository,
+    project_repo: ProjectRepository,
     compressor: GzipCompressor,
 }
 
@@ -17,17 +20,23 @@ impl IngestReportUseCase {
         archive_repo: ArchiveRepository,
         event_repo: EventRepository,
         queue_repo: QueueRepository,
+        project_repo: ProjectRepository,
         compressor: GzipCompressor,
     ) -> Self {
         Self {
             archive_repo,
             event_repo,
             queue_repo,
+            project_repo,
             compressor,
         }
     }
 
-    pub fn execute(&self, payload: &[u8]) -> Result<String, DomainError> {
+    pub fn execute(&self, project_id: &str, payload: &[u8]) -> Result<String, DomainError> {
+        if !self.project_repo.exists(project_id)? {
+            return Err(DomainError::ProjectNotFound(project_id.to_string()));
+        }
+
         let hash = self.compute_hash(payload);
 
         let archive_exists = self.archive_repo.exists(&hash)?;
@@ -38,7 +47,7 @@ impl IngestReportUseCase {
             self.archive_repo.save(&archive)?;
         }
 
-        let event = Event::new(hash.clone());
+        let event = Event::new(project_id.to_string(), hash.clone());
         let event_id = self.event_repo.save(&event)?;
 
         let queue_item = ProcessingQueueItem::new(event_id);
