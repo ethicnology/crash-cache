@@ -17,6 +17,13 @@ pub fn run_migrations(pool: &SqlitePool) {
 
     conn.batch_execute(
         "
+        CREATE TABLE IF NOT EXISTS project (
+            id TEXT PRIMARY KEY NOT NULL,
+            public_key TEXT,
+            name TEXT,
+            created_at TIMESTAMP NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS archive (
             hash TEXT PRIMARY KEY NOT NULL,
             compressed_payload BLOB NOT NULL,
@@ -26,9 +33,11 @@ pub fn run_migrations(pool: &SqlitePool) {
 
         CREATE TABLE IF NOT EXISTS event (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            project_id TEXT NOT NULL,
             archive_hash TEXT NOT NULL,
             received_at TIMESTAMP NOT NULL,
             processed BOOLEAN NOT NULL DEFAULT FALSE,
+            FOREIGN KEY (project_id) REFERENCES project(id),
             FOREIGN KEY (archive_hash) REFERENCES archive(hash)
         );
 
@@ -56,6 +65,7 @@ pub fn run_migrations(pool: &SqlitePool) {
             FOREIGN KEY (event_id) REFERENCES event(id)
         );
 
+        CREATE INDEX IF NOT EXISTS idx_event_project_id ON event(project_id);
         CREATE INDEX IF NOT EXISTS idx_event_archive_hash ON event(archive_hash);
         CREATE INDEX IF NOT EXISTS idx_event_processed ON event(processed);
         CREATE INDEX IF NOT EXISTS idx_processing_queue_next_retry ON processing_queue(next_retry_at);

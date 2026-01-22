@@ -1,4 +1,13 @@
 diesel::table! {
+    project (id) {
+        id -> Text,
+        public_key -> Nullable<Text>,
+        name -> Nullable<Text>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     archive (hash) {
         hash -> Text,
         compressed_payload -> Binary,
@@ -10,6 +19,7 @@ diesel::table! {
 diesel::table! {
     event (id) {
         id -> Integer,
+        project_id -> Text,
         archive_hash -> Text,
         received_at -> Timestamp,
         processed -> Bool,
@@ -42,8 +52,15 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(event -> project (project_id));
 diesel::joinable!(event -> archive (archive_hash));
 diesel::joinable!(processing_queue -> event (event_id));
 diesel::joinable!(report_metadata -> event (event_id));
 
-diesel::allow_tables_to_appear_in_same_query!(archive, event, processing_queue, report_metadata,);
+diesel::allow_tables_to_appear_in_same_query!(
+    project,
+    archive,
+    event,
+    processing_queue,
+    report_metadata,
+);

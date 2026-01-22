@@ -23,6 +23,7 @@ impl EventRepository {
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let model = NewEventModel {
+            project_id: evt.project_id.clone(),
             archive_hash: evt.archive_hash.clone(),
             received_at: evt.received_at.naive_utc(),
             processed: evt.processed,
@@ -56,6 +57,7 @@ impl EventRepository {
 
         Ok(result.map(|m| Event {
             id: Some(m.id),
+            project_id: m.project_id,
             archive_hash: m.archive_hash,
             received_at: Utc.from_utc_datetime(&m.received_at),
             processed: m.processed,
