@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrashReport {
+pub struct SentryReport {
     pub event_id: Option<String>,
     pub timestamp: Option<String>,
     pub platform: Option<String>,
@@ -62,7 +62,7 @@ pub struct SentryStacktrace {
     pub frames: Option<Vec<serde_json::Value>>,
 }
 
-impl CrashReport {
+impl SentryReport {
     pub fn extract_app_version(&self) -> Option<String> {
         if let Some(release) = &self.release {
             if let Some(version) = release.split('@').last() {

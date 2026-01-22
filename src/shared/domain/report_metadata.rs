@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone)]
-pub struct CrashMetadata {
+pub struct ReportMetadata {
     pub id: Option<i32>,
     pub event_id: i32,
     pub app_version: Option<String>,
@@ -14,7 +14,7 @@ pub struct CrashMetadata {
     pub processed_at: DateTime<Utc>,
 }
 
-impl CrashMetadata {
+impl ReportMetadata {
     pub fn new(event_id: i32) -> Self {
         Self {
             id: None,

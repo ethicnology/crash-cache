@@ -28,7 +28,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    crash_metadata (id) {
+    report_metadata (id) {
         id -> Integer,
         event_id -> Integer,
         app_version -> Nullable<Text>,
@@ -44,6 +44,6 @@ diesel::table! {
 
 diesel::joinable!(event -> archive (archive_hash));
 diesel::joinable!(processing_queue -> event (event_id));
-diesel::joinable!(crash_metadata -> event (event_id));
+diesel::joinable!(report_metadata -> event (event_id));
 
-diesel::allow_tables_to_appear_in_same_query!(archive, event, processing_queue, crash_metadata,);
+diesel::allow_tables_to_appear_in_same_query!(archive, event, processing_queue, report_metadata,);

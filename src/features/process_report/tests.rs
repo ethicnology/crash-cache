@@ -1,18 +1,18 @@
-use crate::features::receive_report::IngestCrashUseCase;
+use crate::features::receive_report::IngestReportUseCase;
 use crate::shared::compression::GzipCompressor;
-use crate::shared::domain::CrashReport;
+use crate::shared::domain::SentryReport;
 use crate::shared::persistence::{
-    establish_connection_pool, run_migrations, ArchiveRepository, CrashMetadataRepository,
-    EventRepository, QueueRepository,
+    establish_connection_pool, run_migrations, ArchiveRepository, EventRepository, QueueRepository,
+    ReportMetadataRepository,
 };
 
-use super::ProcessCrashUseCase;
+use super::ProcessReportUseCase;
 
 fn setup_test_db() -> (
     ArchiveRepository,
     EventRepository,
     QueueRepository,
-    CrashMetadataRepository,
+    ReportMetadataRepository,
 ) {
     let pool = establish_connection_pool(":memory:");
     run_migrations(&pool);
@@ -20,7 +20,7 @@ fn setup_test_db() -> (
         ArchiveRepository::new(pool.clone()),
         EventRepository::new(pool.clone()),
         QueueRepository::new(pool.clone()),
-        CrashMetadataRepository::new(pool),
+        ReportMetadataRepository::new(pool),
     )
 }
 
@@ -43,21 +43,21 @@ fn sample_sentry_payload() -> Vec<u8> {
 #[test]
 fn test_extract_app_version_from_release() {
     let json = r#"{"release": "my-app@1.2.3"}"#;
-    let report: CrashReport = serde_json::from_str(json).unwrap();
+    let report: SentryReport = serde_json::from_str(json).unwrap();
     assert_eq!(report.extract_app_version(), Some("1.2.3".to_string()));
 }
 
 #[test]
 fn test_extract_app_version_from_context() {
     let json = r#"{"contexts": {"app": {"app_version": "2.0.0"}}}"#;
-    let report: CrashReport = serde_json::from_str(json).unwrap();
+    let report: SentryReport = serde_json::from_str(json).unwrap();
     assert_eq!(report.extract_app_version(), Some("2.0.0".to_string()));
 }
 
 #[test]
 fn test_extract_error_info() {
     let json = r#"{"exception": {"values": [{"type": "ValueError", "value": "Invalid input"}]}}"#;
-    let report: CrashReport = serde_json::from_str(json).unwrap();
+    let report: SentryReport = serde_json::from_str(json).unwrap();
     let (error_type, error_message) = report.extract_error_info();
     assert_eq!(error_type, Some("ValueError".to_string()));
     assert_eq!(error_message, Some("Invalid input".to_string()));
@@ -66,7 +66,7 @@ fn test_extract_error_info() {
 #[test]
 fn test_extract_sdk_info() {
     let json = r#"{"sdk": {"name": "sentry.python", "version": "1.5.0"}}"#;
-    let report: CrashReport = serde_json::from_str(json).unwrap();
+    let report: SentryReport = serde_json::from_str(json).unwrap();
     let (sdk_name, sdk_version) = report.extract_sdk_info();
     assert_eq!(sdk_name, Some("sentry.python".to_string()));
     assert_eq!(sdk_version, Some("1.5.0".to_string()));
@@ -77,14 +77,14 @@ fn test_process_extracts_metadata() {
     let (archive_repo, event_repo, queue_repo, metadata_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let ingest_use_case = IngestCrashUseCase::new(
+    let ingest_use_case = IngestReportUseCase::new(
         archive_repo.clone(),
         event_repo.clone(),
         queue_repo.clone(),
         compressor.clone(),
     );
 
-    let process_use_case = ProcessCrashUseCase::new(
+    let process_use_case = ProcessReportUseCase::new(
         archive_repo,
         event_repo.clone(),
         queue_repo.clone(),
@@ -122,7 +122,7 @@ fn test_process_batch_returns_zero_when_empty() {
     let (archive_repo, event_repo, queue_repo, metadata_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let process_use_case = ProcessCrashUseCase::new(
+    let process_use_case = ProcessReportUseCase::new(
         archive_repo,
         event_repo,
         queue_repo,
@@ -139,14 +139,14 @@ fn test_process_multiple_events() {
     let (archive_repo, event_repo, queue_repo, metadata_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let ingest_use_case = IngestCrashUseCase::new(
+    let ingest_use_case = IngestReportUseCase::new(
         archive_repo.clone(),
         event_repo.clone(),
         queue_repo.clone(),
         compressor.clone(),
     );
 
-    let process_use_case = ProcessCrashUseCase::new(
+    let process_use_case = ProcessReportUseCase::new(
         archive_repo,
         event_repo,
         queue_repo.clone(),

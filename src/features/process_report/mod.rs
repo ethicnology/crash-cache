@@ -4,5 +4,5 @@ mod worker;
 #[cfg(test)]
 mod tests;
 
-pub use use_case::ProcessCrashUseCase;
+pub use use_case::ProcessReportUseCase;
 pub use worker::ProcessingWorker;

@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
-use super::schema::{archive, crash_metadata, event, processing_queue};
+use super::schema::{archive, event, processing_queue, report_metadata};
 
 #[derive(Queryable, Selectable, Insertable, Debug)]
 #[diesel(table_name = archive)]
@@ -54,9 +54,9 @@ pub struct NewProcessingQueueModel {
 }
 
 #[derive(Queryable, Selectable, Debug)]
-#[diesel(table_name = crash_metadata)]
+#[diesel(table_name = report_metadata)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct CrashMetadataModel {
+pub struct ReportMetadataModel {
     pub id: i32,
     pub event_id: i32,
     pub app_version: Option<String>,
@@ -70,8 +70,8 @@ pub struct CrashMetadataModel {
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = crash_metadata)]
-pub struct NewCrashMetadataModel {
+#[diesel(table_name = report_metadata)]
+pub struct NewReportMetadataModel {
     pub event_id: i32,
     pub app_version: Option<String>,
     pub platform: Option<String>,

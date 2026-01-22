@@ -5,7 +5,7 @@ use crate::shared::persistence::{
     establish_connection_pool, run_migrations, ArchiveRepository, EventRepository, QueueRepository,
 };
 
-use super::IngestCrashUseCase;
+use super::IngestReportUseCase;
 
 fn setup_test_db() -> (ArchiveRepository, EventRepository, QueueRepository) {
     let pool = establish_connection_pool(":memory:");
@@ -42,7 +42,7 @@ fn test_compute_sha256_hash() {
 
     let (archive_repo, event_repo, queue_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
-    let use_case = IngestCrashUseCase::new(archive_repo, event_repo, queue_repo, compressor);
+    let use_case = IngestReportUseCase::new(archive_repo, event_repo, queue_repo, compressor);
 
     let result = use_case.execute(payload).unwrap();
     assert_eq!(result, expected);
@@ -64,7 +64,7 @@ fn test_gzip_compression_roundtrip() {
 fn test_ingest_stores_archive_and_event() {
     let (archive_repo, event_repo, queue_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
-    let use_case = IngestCrashUseCase::new(
+    let use_case = IngestReportUseCase::new(
         archive_repo.clone(),
         event_repo.clone(),
         queue_repo.clone(),
@@ -87,7 +87,7 @@ fn test_ingest_stores_archive_and_event() {
 fn test_deduplication_same_hash_reuses_archive() {
     let (archive_repo, event_repo, queue_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
-    let use_case = IngestCrashUseCase::new(
+    let use_case = IngestReportUseCase::new(
         archive_repo.clone(),
         event_repo,
         queue_repo.clone(),
@@ -111,7 +111,7 @@ fn test_deduplication_same_hash_reuses_archive() {
 fn test_different_payloads_different_hashes() {
     let (archive_repo, event_repo, queue_repo) = setup_test_db();
     let compressor = GzipCompressor::new();
-    let use_case = IngestCrashUseCase::new(archive_repo, event_repo, queue_repo, compressor);
+    let use_case = IngestReportUseCase::new(archive_repo, event_repo, queue_repo, compressor);
 
     let payload1 = b"payload one";
     let payload2 = b"payload two";

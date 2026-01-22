@@ -4,10 +4,10 @@ use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use super::ProcessCrashUseCase;
+use super::ProcessReportUseCase;
 
 pub struct ProcessingWorker {
-    process_use_case: ProcessCrashUseCase,
+    process_use_case: ProcessReportUseCase,
     interval_secs: u64,
     processing_budget_secs: u64,
     shutdown: Arc<AtomicBool>,
@@ -15,7 +15,7 @@ pub struct ProcessingWorker {
 
 impl ProcessingWorker {
     pub fn new(
-        process_use_case: ProcessCrashUseCase,
+        process_use_case: ProcessReportUseCase,
         interval_secs: u64,
         processing_budget_secs: u64,
     ) -> Self {

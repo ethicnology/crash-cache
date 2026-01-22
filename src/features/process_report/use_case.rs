@@ -1,29 +1,29 @@
 use tracing::{error, info, warn};
 
 use crate::shared::compression::GzipCompressor;
-use crate::shared::domain::{CrashMetadata, CrashReport, DomainError, ProcessingQueueItem};
+use crate::shared::domain::{DomainError, ProcessingQueueItem, ReportMetadata, SentryReport};
 use crate::shared::persistence::{
-    ArchiveRepository, CrashMetadataRepository, EventRepository, QueueRepository,
+    ArchiveRepository, EventRepository, QueueRepository, ReportMetadataRepository,
 };
 
 const MAX_RETRIES: i32 = 3;
 const BACKOFF_BASE_SECONDS: i64 = 30;
 
 #[derive(Clone)]
-pub struct ProcessCrashUseCase {
+pub struct ProcessReportUseCase {
     archive_repo: ArchiveRepository,
     event_repo: EventRepository,
     queue_repo: QueueRepository,
-    metadata_repo: CrashMetadataRepository,
+    metadata_repo: ReportMetadataRepository,
     compressor: GzipCompressor,
 }
 
-impl ProcessCrashUseCase {
+impl ProcessReportUseCase {
     pub fn new(
         archive_repo: ArchiveRepository,
         event_repo: EventRepository,
         queue_repo: QueueRepository,
-        metadata_repo: CrashMetadataRepository,
+        metadata_repo: ReportMetadataRepository,
         compressor: GzipCompressor,
     ) -> Self {
         Self {
@@ -43,7 +43,7 @@ impl ProcessCrashUseCase {
             match self.process_single_item(&item) {
                 Ok(()) => {
                     processed_count += 1;
-                    info!(event_id = item.event_id, "Successfully processed crash event");
+                    info!(event_id = item.event_id, "Successfully processed report event");
                 }
                 Err(e) => {
                     self.handle_failure(item, e)?;
@@ -69,17 +69,17 @@ impl ProcessCrashUseCase {
 
         let decompressed = self.compressor.decompress(&archive.compressed_payload)?;
 
-        let crash_report: CrashReport = serde_json::from_slice(&decompressed)
+        let sentry_report: SentryReport = serde_json::from_slice(&decompressed)
             .map_err(|e| DomainError::Serialization(e.to_string()))?;
 
-        let app_version = crash_report.extract_app_version();
-        let (error_type, error_message) = crash_report.extract_error_info();
-        let (sdk_name, sdk_version) = crash_report.extract_sdk_info();
+        let app_version = sentry_report.extract_app_version();
+        let (error_type, error_message) = sentry_report.extract_error_info();
+        let (sdk_name, sdk_version) = sentry_report.extract_sdk_info();
 
-        let metadata = CrashMetadata::new(item.event_id)
+        let metadata = ReportMetadata::new(item.event_id)
             .with_app_version(app_version)
-            .with_platform(crash_report.platform.clone())
-            .with_environment(crash_report.environment.clone())
+            .with_platform(sentry_report.platform.clone())
+            .with_environment(sentry_report.environment.clone())
             .with_error(error_type, error_message)
             .with_sdk(sdk_name, sdk_version);
 
@@ -99,7 +99,7 @@ impl ProcessCrashUseCase {
             event_id = item.event_id,
             error = %error,
             retry_count = item.retry_count,
-            "Failed to process crash event"
+            "Failed to process report event"
         );
 
         if item.retry_count >= MAX_RETRIES {

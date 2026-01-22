@@ -5,4 +5,4 @@ mod use_case;
 mod tests;
 
 pub use handler::{create_router, AppState};
-pub use use_case::IngestCrashUseCase;
+pub use use_case::IngestReportUseCase;

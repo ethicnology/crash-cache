@@ -9,11 +9,11 @@ use axum::{
 use serde::Serialize;
 use tracing::{error, info};
 
-use super::IngestCrashUseCase;
+use super::IngestReportUseCase;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub ingest_use_case: IngestCrashUseCase,
+    pub ingest_use_case: IngestReportUseCase,
 }
 
 #[derive(Serialize)]
@@ -23,13 +23,13 @@ struct StoreResponse {
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/api/{project_id}/store/", post(store_crash))
-        .route("/api/{project_id}/store", post(store_crash))
+        .route("/api/{project_id}/store/", post(store_report))
+        .route("/api/{project_id}/store", post(store_report))
         .route("/health", get(health_check))
         .with_state(state)
 }
 
-async fn store_crash(
+async fn store_report(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
     body: Bytes,
@@ -37,16 +37,16 @@ async fn store_crash(
     info!(
         project_id = %project_id,
         payload_size = body.len(),
-        "Received crash report"
+        "Received report"
     );
 
     match state.ingest_use_case.execute(&body) {
         Ok(hash) => {
-            info!(hash = %hash, "Crash report stored successfully");
+            info!(hash = %hash, "Report stored successfully");
             (StatusCode::OK, Json(StoreResponse { id: hash }))
         }
         Err(e) => {
-            error!(error = %e, "Failed to store crash report");
+            error!(error = %e, "Failed to store report");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(StoreResponse { id: String::new() }),

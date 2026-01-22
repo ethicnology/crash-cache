@@ -5,14 +5,14 @@ use crate::shared::domain::{Archive, DomainError, Event, ProcessingQueueItem};
 use crate::shared::persistence::{ArchiveRepository, EventRepository, QueueRepository};
 
 #[derive(Clone)]
-pub struct IngestCrashUseCase {
+pub struct IngestReportUseCase {
     archive_repo: ArchiveRepository,
     event_repo: EventRepository,
     queue_repo: QueueRepository,
     compressor: GzipCompressor,
 }
 
-impl IngestCrashUseCase {
+impl IngestReportUseCase {
     pub fn new(
         archive_repo: ArchiveRepository,
         event_repo: EventRepository,

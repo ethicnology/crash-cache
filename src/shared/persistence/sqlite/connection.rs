@@ -42,7 +42,7 @@ pub fn run_migrations(pool: &SqlitePool) {
             FOREIGN KEY (event_id) REFERENCES event(id)
         );
 
-        CREATE TABLE IF NOT EXISTS crash_metadata (
+        CREATE TABLE IF NOT EXISTS report_metadata (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             event_id INTEGER NOT NULL UNIQUE,
             app_version TEXT,
