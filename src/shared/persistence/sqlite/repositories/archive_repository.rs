@@ -29,7 +29,7 @@ impl ArchiveRepository {
             created_at: arch.created_at.naive_utc(),
         };
 
-        diesel::insert_into(archive::table)
+        diesel::insert_or_ignore_into(archive::table)
             .values(&model)
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;

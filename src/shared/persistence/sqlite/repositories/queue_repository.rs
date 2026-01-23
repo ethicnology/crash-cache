@@ -30,10 +30,19 @@ impl QueueRepository {
             next_retry_at: item.next_retry_at.map(|dt| dt.naive_utc()),
         };
 
-        diesel::insert_into(processing_queue::table)
+        let rows = diesel::insert_or_ignore_into(processing_queue::table)
             .values(&model)
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        if rows == 0 {
+            let existing = processing_queue::table
+                .filter(processing_queue::archive_hash.eq(&item.archive_hash))
+                .select(processing_queue::id)
+                .first::<i32>(&mut conn)
+                .map_err(|e| DomainError::Database(e.to_string()))?;
+            return Ok(existing);
+        }
 
         let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
