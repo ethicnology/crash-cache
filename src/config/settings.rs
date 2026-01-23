@@ -8,6 +8,10 @@ pub struct Settings {
     pub worker_budget_secs: u64,
     pub max_concurrent_compressions: usize,
     pub health_cache_ttl_secs: u64,
+    // Rate limiting (requests per second, 0 = disabled)
+    pub rate_limit_global_per_sec: u64,
+    pub rate_limit_per_ip_per_sec: u64,
+    pub rate_limit_per_project_per_sec: u64,
 }
 
 impl Settings {
@@ -37,6 +41,18 @@ impl Settings {
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
                 .expect("HEALTH_CACHE_TTL_SECS must be a valid number"),
+            rate_limit_global_per_sec: env::var("RATE_LIMIT_GLOBAL_PER_SEC")
+                .unwrap_or_else(|_| "100".to_string())
+                .parse()
+                .expect("RATE_LIMIT_GLOBAL_PER_SEC must be a valid number"),
+            rate_limit_per_ip_per_sec: env::var("RATE_LIMIT_PER_IP_PER_SEC")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()
+                .expect("RATE_LIMIT_PER_IP_PER_SEC must be a valid number"),
+            rate_limit_per_project_per_sec: env::var("RATE_LIMIT_PER_PROJECT_PER_SEC")
+                .unwrap_or_else(|_| "50".to_string())
+                .parse()
+                .expect("RATE_LIMIT_PER_PROJECT_PER_SEC must be a valid number"),
         }
     }
 

@@ -13,6 +13,9 @@ use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
 use crash_cache::features::ingest::{create_router, AppState, HealthStats, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
+use crash_cache::shared::rate_limit::{
+    create_global_rate_limiter, create_ip_rate_limiter, create_project_rate_limiter,
+};
 
 const MAX_BODY_SIZE: usize = 1 * 1024 * 1024;
 
@@ -66,7 +69,32 @@ async fn main() {
         health_cache: Arc::new(RwLock::new(HealthStats::default())),
         health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
     };
-    let app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
+
+    info!(
+        global = settings.rate_limit_global_per_sec,
+        per_ip = settings.rate_limit_per_ip_per_sec,
+        per_project = settings.rate_limit_per_project_per_sec,
+        "Rate limiting configured (0 = disabled)"
+    );
+
+    // Build router with rate limiting layers
+    let mut app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
+
+    // Apply rate limiters (order: per-IP → per-project → global)
+    if let Some(layer) = create_ip_rate_limiter(settings.rate_limit_per_ip_per_sec) {
+        app = app.layer(layer);
+        info!("Per-IP rate limiter enabled");
+    }
+
+    if let Some(layer) = create_project_rate_limiter(settings.rate_limit_per_project_per_sec) {
+        app = app.layer(layer);
+        info!("Per-project rate limiter enabled");
+    }
+
+    if let Some(layer) = create_global_rate_limiter(settings.rate_limit_global_per_sec) {
+        app = app.layer(layer);
+        info!("Global rate limiter enabled");
+    }
 
     let addr = settings.server_addr();
     info!(addr = %addr, "Server listening");
