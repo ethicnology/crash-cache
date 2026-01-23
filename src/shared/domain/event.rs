@@ -3,14 +3,14 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone)]
 pub struct Event {
     pub id: Option<i32>,
-    pub project_id: String,
+    pub project_id: i32,
     pub archive_hash: String,
     pub received_at: DateTime<Utc>,
     pub processed: bool,
 }
 
 impl Event {
-    pub fn new(project_id: String, archive_hash: String) -> Self {
+    pub fn new(project_id: i32, archive_hash: String) -> Self {
         Self {
             id: None,
             project_id,

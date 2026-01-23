@@ -9,7 +9,7 @@ use crate::shared::persistence::{
 
 use super::IngestReportUseCase;
 
-const TEST_PROJECT_ID: &str = "test-project";
+const TEST_PROJECT_ID: i32 = 1;
 
 fn setup_test_db() -> (
     ArchiveRepository,
@@ -20,7 +20,7 @@ fn setup_test_db() -> (
     let pool = establish_connection_pool(":memory:");
     run_migrations(&pool);
     let project_repo = ProjectRepository::new(pool.clone());
-    project_repo.save(&Project::new(TEST_PROJECT_ID.to_string())).unwrap();
+    project_repo.save(&Project::new(TEST_PROJECT_ID)).unwrap();
     (
         ArchiveRepository::new(pool.clone()),
         EventRepository::new(pool.clone()),
@@ -146,7 +146,7 @@ fn test_unknown_project_returns_error() {
         IngestReportUseCase::new(archive_repo, event_repo, queue_repo, project_repo, compressor);
 
     let payload = sample_sentry_payload();
-    let result = use_case.execute("unknown-project", &payload);
+    let result = use_case.execute(999, &payload);
 
     assert!(result.is_err());
 }

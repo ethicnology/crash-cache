@@ -32,9 +32,9 @@ impl IngestReportUseCase {
         }
     }
 
-    pub fn execute(&self, project_id: &str, payload: &[u8]) -> Result<String, DomainError> {
+    pub fn execute(&self, project_id: i32, payload: &[u8]) -> Result<String, DomainError> {
         if !self.project_repo.exists(project_id)? {
-            return Err(DomainError::ProjectNotFound(project_id.to_string()));
+            return Err(DomainError::ProjectNotFound(project_id));
         }
 
         let hash = self.compute_hash(payload);
@@ -47,7 +47,7 @@ impl IngestReportUseCase {
             self.archive_repo.save(&archive)?;
         }
 
-        let event = Event::new(project_id.to_string(), hash.clone());
+        let event = Event::new(project_id, hash.clone());
         let event_id = self.event_repo.save(&event)?;
 
         let queue_item = ProcessingQueueItem::new(event_id);

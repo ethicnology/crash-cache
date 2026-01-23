@@ -18,7 +18,7 @@ pub fn run_migrations(pool: &SqlitePool) {
     conn.batch_execute(
         "
         CREATE TABLE IF NOT EXISTS project (
-            id TEXT PRIMARY KEY NOT NULL,
+            id INTEGER PRIMARY KEY NOT NULL,
             public_key TEXT,
             name TEXT,
             created_at TIMESTAMP NOT NULL
@@ -33,7 +33,7 @@ pub fn run_migrations(pool: &SqlitePool) {
 
         CREATE TABLE IF NOT EXISTS event (
             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            project_id TEXT NOT NULL,
+            project_id INTEGER NOT NULL,
             archive_hash TEXT NOT NULL,
             received_at TIMESTAMP NOT NULL,
             processed BOOLEAN NOT NULL DEFAULT FALSE,

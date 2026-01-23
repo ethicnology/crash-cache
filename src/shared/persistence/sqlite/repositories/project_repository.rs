@@ -23,7 +23,7 @@ impl ProjectRepository {
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let model = ProjectModel {
-            id: proj.id.clone(),
+            id: proj.id,
             public_key: proj.public_key.clone(),
             name: proj.name.clone(),
             created_at: proj.created_at.naive_utc(),
@@ -37,7 +37,7 @@ impl ProjectRepository {
         Ok(())
     }
 
-    pub fn find_by_id(&self, id: &str) -> Result<Option<Project>, DomainError> {
+    pub fn find_by_id(&self, id: i32) -> Result<Option<Project>, DomainError> {
         let mut conn = self
             .pool
             .get()
@@ -57,7 +57,7 @@ impl ProjectRepository {
         }))
     }
 
-    pub fn exists(&self, id: &str) -> Result<bool, DomainError> {
+    pub fn exists(&self, id: i32) -> Result<bool, DomainError> {
         let mut conn = self
             .pool
             .get()
@@ -72,7 +72,7 @@ impl ProjectRepository {
         Ok(count > 0)
     }
 
-    pub fn delete(&self, id: &str) -> Result<(), DomainError> {
+    pub fn delete(&self, id: i32) -> Result<(), DomainError> {
         let mut conn = self
             .pool
             .get()

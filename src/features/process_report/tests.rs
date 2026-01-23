@@ -8,7 +8,7 @@ use crate::shared::persistence::{
 
 use super::ProcessReportUseCase;
 
-const TEST_PROJECT_ID: &str = "test-project";
+const TEST_PROJECT_ID: i32 = 1;
 
 fn setup_test_db() -> (
     ArchiveRepository,
@@ -21,7 +21,7 @@ fn setup_test_db() -> (
     run_migrations(&pool);
     let project_repo = ProjectRepository::new(pool.clone());
     project_repo
-        .save(&Project::new(TEST_PROJECT_ID.to_string()))
+        .save(&Project::new(TEST_PROJECT_ID))
         .unwrap();
     (
         ArchiveRepository::new(pool.clone()),

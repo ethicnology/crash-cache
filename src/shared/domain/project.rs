@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone)]
 pub struct Project {
-    pub id: String,
+    pub id: i32,
     pub public_key: Option<String>,
     pub name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
 impl Project {
-    pub fn new(id: String) -> Self {
+    pub fn new(id: i32) -> Self {
         Self {
             id,
             public_key: None,

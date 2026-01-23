@@ -8,6 +8,7 @@ use axum::{
 };
 use flate2::read::GzDecoder;
 use std::io::Read;
+use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 
 use crate::shared::domain::DomainError;
@@ -27,12 +28,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/{project_id}/envelope/", post(envelope_report))
         .route("/api/{project_id}/envelope", post(envelope_report))
         .route("/health", get(health_check))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
 async fn store_report(
     State(state): State<AppState>,
-    Path(project_id): Path<String>,
+    Path(project_id): Path<i32>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -53,7 +55,7 @@ async fn store_report(
         }
     };
 
-    match state.ingest_use_case.execute(&project_id, &payload) {
+    match state.ingest_use_case.execute(project_id, &payload) {
         Ok(hash) => {
             info!(hash = %hash, "Report stored successfully");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
@@ -77,7 +79,7 @@ async fn store_report(
 
 async fn envelope_report(
     State(state): State<AppState>,
-    Path(project_id): Path<String>,
+    Path(project_id): Path<i32>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -120,7 +122,7 @@ async fn envelope_report(
         }
     };
 
-    match state.ingest_use_case.execute(&project_id, event_payload) {
+    match state.ingest_use_case.execute(project_id, event_payload) {
         Ok(hash) => {
             info!(hash = %hash, "Envelope report stored successfully");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))

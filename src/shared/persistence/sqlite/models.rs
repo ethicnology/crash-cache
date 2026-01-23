@@ -7,7 +7,7 @@ use super::schema::{archive, event, processing_queue, project, report_metadata};
 #[diesel(table_name = project)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ProjectModel {
-    pub id: String,
+    pub id: i32,
     pub public_key: Option<String>,
     pub name: Option<String>,
     pub created_at: NaiveDateTime,
@@ -28,7 +28,7 @@ pub struct ArchiveModel {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct EventModel {
     pub id: i32,
-    pub project_id: String,
+    pub project_id: i32,
     pub archive_hash: String,
     pub received_at: NaiveDateTime,
     pub processed: bool,
@@ -37,7 +37,7 @@ pub struct EventModel {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = event)]
 pub struct NewEventModel {
-    pub project_id: String,
+    pub project_id: i32,
     pub archive_hash: String,
     pub received_at: NaiveDateTime,
     pub processed: bool,

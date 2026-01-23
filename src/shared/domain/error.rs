@@ -24,7 +24,7 @@ pub enum DomainError {
     MaxRetriesExceeded(i32),
 
     #[error("Project not found: {0}")]
-    ProjectNotFound(String),
+    ProjectNotFound(i32),
 
     #[error("Invalid request: {0}")]
     InvalidRequest(String),

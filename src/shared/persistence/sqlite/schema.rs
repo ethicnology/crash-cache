@@ -1,6 +1,6 @@
 diesel::table! {
     project (id) {
-        id -> Text,
+        id -> Integer,
         public_key -> Nullable<Text>,
         name -> Nullable<Text>,
         created_at -> Timestamp,
@@ -19,7 +19,7 @@ diesel::table! {
 diesel::table! {
     event (id) {
         id -> Integer,
-        project_id -> Text,
+        project_id -> Integer,
         archive_hash -> Text,
         received_at -> Timestamp,
         processed -> Bool,

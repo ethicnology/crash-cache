@@ -23,7 +23,7 @@ impl EventRepository {
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let model = NewEventModel {
-            project_id: evt.project_id.clone(),
+            project_id: evt.project_id,
             archive_hash: evt.archive_hash.clone(),
             received_at: evt.received_at.naive_utc(),
             processed: evt.processed,
