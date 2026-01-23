@@ -24,6 +24,7 @@ impl ArchiveRepository {
 
         let model = ArchiveModel {
             hash: arch.hash.clone(),
+            project_id: arch.project_id,
             compressed_payload: arch.compressed_payload.clone(),
             original_size: arch.original_size,
             created_at: arch.created_at.naive_utc(),
@@ -51,6 +52,7 @@ impl ArchiveRepository {
 
         Ok(result.map(|m| Archive {
             hash: m.hash,
+            project_id: m.project_id,
             compressed_payload: m.compressed_payload,
             original_size: m.original_size,
             created_at: Utc.from_utc_datetime(&m.created_at),

@@ -30,6 +30,7 @@ pub struct NewProjectModel {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ArchiveModel {
     pub hash: String,
+    pub project_id: i32,
     pub compressed_payload: Vec<u8>,
     pub original_size: Option<i32>,
     pub created_at: NaiveDateTime,

@@ -14,6 +14,7 @@ diesel::table! {
 diesel::table! {
     archive (hash) {
         hash -> Text,
+        project_id -> Integer,
         compressed_payload -> Binary,
         original_size -> Nullable<Integer>,
         created_at -> Timestamp,

@@ -84,7 +84,7 @@ fn test_process_extracts_and_stores_report() {
         repos.project.clone(),
     );
 
-    let process_use_case = DigestReportUseCase::new(repos.clone(), compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos.clone(), compressor);
 
     let payload = sample_sentry_payload();
     let (hash, compressed) = compress_and_hash(&payload);
@@ -99,10 +99,10 @@ fn test_process_extracts_and_stores_report() {
 
 #[test]
 fn test_process_batch_returns_zero_when_empty() {
-    let (repos, project_id) = setup_test_db();
+    let (repos, _project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let process_use_case = DigestReportUseCase::new(repos, compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos, compressor);
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 0);
@@ -120,7 +120,7 @@ fn test_process_multiple_events() {
         repos.project.clone(),
     );
 
-    let process_use_case = DigestReportUseCase::new(repos, compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos, compressor);
 
     let payload1 = r#"{"event_id": "e1", "release": "app@1.0.0", "platform": "python"}"#.as_bytes();
     let payload2 = r#"{"event_id": "e2", "release": "app@2.0.0", "platform": "rust"}"#.as_bytes();

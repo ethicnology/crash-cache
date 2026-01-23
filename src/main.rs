@@ -39,7 +39,7 @@ async fn main() {
         repos.project.clone(),
     );
 
-    let digest_use_case = DigestReportUseCase::new(repos.clone(), compressor, 1);
+    let digest_use_case = DigestReportUseCase::new(repos.clone(), compressor);
 
     let worker = DigestWorker::new(
         digest_use_case,

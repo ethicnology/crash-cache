@@ -12,15 +12,13 @@ const BACKOFF_BASE_SECONDS: i64 = 30;
 pub struct DigestReportUseCase {
     repos: Repositories,
     compressor: GzipCompressor,
-    project_id: i32,
 }
 
 impl DigestReportUseCase {
-    pub fn new(repos: Repositories, compressor: GzipCompressor, project_id: i32) -> Self {
+    pub fn new(repos: Repositories, compressor: GzipCompressor) -> Self {
         Self {
             repos,
             compressor,
-            project_id,
         }
     }
 
@@ -94,7 +92,7 @@ impl DigestReportUseCase {
             event_id,
             archive_hash: item.archive_hash.clone(),
             timestamp,
-            project_id: self.project_id,
+            project_id: archive.project_id,
             platform_id,
             environment_id,
             os_name_id,

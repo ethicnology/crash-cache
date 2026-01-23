@@ -35,7 +35,7 @@ impl IngestReportUseCase {
         let archive_exists = self.archive_repo.exists(&hash)?;
 
         if !archive_exists {
-            let archive = Archive::new(hash.clone(), compressed_payload, original_size);
+            let archive = Archive::new(hash.clone(), project_id, compressed_payload, original_size);
             self.archive_repo.save(&archive)?;
 
             let queue_item = ProcessingQueueItem::new(hash.clone());

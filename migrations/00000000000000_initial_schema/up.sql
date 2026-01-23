@@ -11,9 +11,11 @@ CREATE TABLE IF NOT EXISTS project (
 
 CREATE TABLE IF NOT EXISTS archive (
     hash TEXT PRIMARY KEY NOT NULL,
+    project_id INTEGER NOT NULL,
     compressed_payload BLOB NOT NULL,
     original_size INTEGER,
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES project(id)
 );
 
 CREATE TABLE IF NOT EXISTS processing_queue (
@@ -229,6 +231,7 @@ CREATE TABLE IF NOT EXISTS report (
 -- INDEXES
 -- ============================================
 
+CREATE INDEX IF NOT EXISTS idx_archive_project ON archive(project_id);
 CREATE INDEX IF NOT EXISTS idx_report_project ON report(project_id);
 CREATE INDEX IF NOT EXISTS idx_report_timestamp ON report(timestamp);
 CREATE INDEX IF NOT EXISTS idx_report_issue ON report(issue_id);

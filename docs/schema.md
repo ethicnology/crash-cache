@@ -17,6 +17,7 @@ erDiagram
     
     archive {
         TEXT hash PK
+        INTEGER project_id FK
         BLOB compressed_payload
         INTEGER original_size "NULL if received compressed"
         TIMESTAMP created_at
@@ -199,6 +200,7 @@ erDiagram
     archive ||--o{ processing_queue : "queued for"
     archive ||--o{ report : "stored in"
     
+    project ||--o{ archive : "receives"
     project ||--o{ report : "owns"
     
     lookup_platform ||--o{ report : "platform"
@@ -266,6 +268,7 @@ flowchart LR
 
 | Index | Table | Column(s) | Purpose |
 |-------|-------|-----------|---------|
+| `idx_archive_project` | archive | project_id | Filter archives by project |
 | `idx_report_project` | report | project_id | Filter by project |
 | `idx_report_timestamp` | report | timestamp | Time-based queries |
 | `idx_report_issue` | report | issue_id | Group by issue |
