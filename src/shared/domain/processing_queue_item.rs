@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone)]
 pub struct ProcessingQueueItem {
     pub id: Option<i32>,
-    pub event_id: i32,
+    pub archive_hash: String,
     pub created_at: DateTime<Utc>,
     pub retry_count: i32,
     pub last_error: Option<String>,
@@ -11,10 +11,10 @@ pub struct ProcessingQueueItem {
 }
 
 impl ProcessingQueueItem {
-    pub fn new(event_id: i32) -> Self {
+    pub fn new(archive_hash: String) -> Self {
         Self {
             id: None,
-            event_id,
+            archive_hash,
             created_at: Utc::now(),
             retry_count: 0,
             last_error: None,

@@ -1,6 +1,6 @@
 pub mod sqlite;
 
 pub use sqlite::{
-    establish_connection_pool, run_migrations, ArchiveRepository, EventRepository,
-    ProjectRepository, QueueRepository, ReportMetadataRepository, SqlitePool,
+    establish_connection_pool, run_migrations, ArchiveRepository, NewReport, ProjectRepository,
+    QueueRepository, Repositories, SqlitePool,
 };

@@ -23,7 +23,7 @@ impl QueueRepository {
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let model = NewProcessingQueueModel {
-            event_id: item.event_id,
+            archive_hash: item.archive_hash.clone(),
             created_at: item.created_at.naive_utc(),
             retry_count: item.retry_count,
             last_error: item.last_error.clone(),
@@ -67,7 +67,7 @@ impl QueueRepository {
             .into_iter()
             .map(|m| ProcessingQueueItem {
                 id: Some(m.id),
-                event_id: m.event_id,
+                archive_hash: m.archive_hash,
                 created_at: Utc.from_utc_datetime(&m.created_at),
                 retry_count: m.retry_count,
                 last_error: m.last_error,
@@ -76,13 +76,13 @@ impl QueueRepository {
             .collect())
     }
 
-    pub fn remove(&self, event_id: i32) -> Result<(), DomainError> {
+    pub fn remove(&self, archive_hash: &str) -> Result<(), DomainError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        diesel::delete(processing_queue::table.filter(processing_queue::event_id.eq(event_id)))
+        diesel::delete(processing_queue::table.filter(processing_queue::archive_hash.eq(archive_hash)))
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
@@ -95,7 +95,7 @@ impl QueueRepository {
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        diesel::update(processing_queue::table.filter(processing_queue::event_id.eq(item.event_id)))
+        diesel::update(processing_queue::table.filter(processing_queue::archive_hash.eq(&item.archive_hash)))
             .set((
                 processing_queue::retry_count.eq(item.retry_count),
                 processing_queue::last_error.eq(&item.last_error),

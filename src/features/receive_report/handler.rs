@@ -111,8 +111,37 @@ async fn envelope_report(
         }
     };
 
+    info!(
+        "Envelope has {} items: {:?}",
+        envelope.items.len(),
+        envelope.items.iter().map(|i| (&i.header.item_type, i.payload.len())).collect::<Vec<_>>()
+    );
+
+    for item in &envelope.items {
+        if item.header.item_type != "event" {
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&item.payload) {
+                info!("Item '{}' content: {}", item.header.item_type, json);
+            } else if let Ok(text) = std::str::from_utf8(&item.payload) {
+                info!("Item '{}' raw: {}", item.header.item_type, text);
+            }
+        }
+    }
+
     let event_payload = match envelope.find_event_payload() {
-        Some(p) => p,
+        Some(p) => {
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(p) {
+                if let Some(contexts) = json.get("contexts") {
+                    info!("Event contexts keys: {:?}", contexts.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                    if let Some(app) = contexts.get("app") {
+                        info!("App context: {}", app);
+                    }
+                    if let Some(device) = contexts.get("device") {
+                        info!("Device context keys: {:?}", device.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                    }
+                }
+            }
+            p
+        }
         None => {
             warn!("No event found in envelope");
             return (

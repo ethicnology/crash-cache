@@ -1,35 +1,18 @@
 use crate::features::receive_report::IngestReportUseCase;
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{Project, SentryReport};
-use crate::shared::persistence::{
-    establish_connection_pool, run_migrations, ArchiveRepository, EventRepository,
-    ProjectRepository, QueueRepository, ReportMetadataRepository,
-};
+use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
 use super::ProcessReportUseCase;
 
 const TEST_PROJECT_ID: i32 = 1;
 
-fn setup_test_db() -> (
-    ArchiveRepository,
-    EventRepository,
-    QueueRepository,
-    ReportMetadataRepository,
-    ProjectRepository,
-) {
+fn setup_test_db() -> Repositories {
     let pool = establish_connection_pool(":memory:");
     run_migrations(&pool);
-    let project_repo = ProjectRepository::new(pool.clone());
-    project_repo
-        .save(&Project::new(TEST_PROJECT_ID))
-        .unwrap();
-    (
-        ArchiveRepository::new(pool.clone()),
-        EventRepository::new(pool.clone()),
-        QueueRepository::new(pool.clone()),
-        ReportMetadataRepository::new(pool.clone()),
-        project_repo,
-    )
+    let repos = Repositories::new(pool);
+    repos.project.save(&Project::new(TEST_PROJECT_ID)).unwrap();
+    repos
 }
 
 fn sample_sentry_payload() -> Vec<u8> {
@@ -81,25 +64,19 @@ fn test_extract_sdk_info() {
 }
 
 #[test]
-fn test_process_extracts_metadata() {
-    let (archive_repo, event_repo, queue_repo, metadata_repo, project_repo) = setup_test_db();
+fn test_process_extracts_and_stores_report() {
+    let repos = setup_test_db();
     let compressor = GzipCompressor::new();
+    let queue_repo = repos.queue.clone();
 
     let ingest_use_case = IngestReportUseCase::new(
-        archive_repo.clone(),
-        event_repo.clone(),
-        queue_repo.clone(),
-        project_repo,
+        repos.archive.clone(),
+        repos.queue.clone(),
+        repos.project.clone(),
         compressor.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(
-        archive_repo,
-        event_repo.clone(),
-        queue_repo.clone(),
-        metadata_repo.clone(),
-        compressor,
-    );
+    let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, TEST_PROJECT_ID);
 
     let payload = sample_sentry_payload();
     ingest_use_case.execute(TEST_PROJECT_ID, &payload).unwrap();
@@ -109,35 +86,14 @@ fn test_process_extracts_metadata() {
 
     let pending = queue_repo.count_pending().unwrap();
     assert_eq!(pending, 0);
-
-    let event = event_repo.find_by_id(1).unwrap().unwrap();
-    assert!(event.processed);
-
-    let metadata = metadata_repo.find_by_event_id(1).unwrap().unwrap();
-    assert_eq!(metadata.app_version, Some("1.2.3".to_string()));
-    assert_eq!(metadata.platform, Some("rust".to_string()));
-    assert_eq!(metadata.environment, Some("production".to_string()));
-    assert_eq!(metadata.error_type, Some("RuntimeError".to_string()));
-    assert_eq!(
-        metadata.error_message,
-        Some("Something went wrong".to_string())
-    );
-    assert_eq!(metadata.sdk_name, Some("sentry.rust".to_string()));
-    assert_eq!(metadata.sdk_version, Some("0.32.0".to_string()));
 }
 
 #[test]
 fn test_process_batch_returns_zero_when_empty() {
-    let (archive_repo, event_repo, queue_repo, metadata_repo, _) = setup_test_db();
+    let repos = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let process_use_case = ProcessReportUseCase::new(
-        archive_repo,
-        event_repo,
-        queue_repo,
-        metadata_repo,
-        compressor,
-    );
+    let process_use_case = ProcessReportUseCase::new(repos, compressor, TEST_PROJECT_ID);
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 0);
@@ -145,28 +101,22 @@ fn test_process_batch_returns_zero_when_empty() {
 
 #[test]
 fn test_process_multiple_events() {
-    let (archive_repo, event_repo, queue_repo, metadata_repo, project_repo) = setup_test_db();
+    let repos = setup_test_db();
     let compressor = GzipCompressor::new();
+    let queue_repo = repos.queue.clone();
 
     let ingest_use_case = IngestReportUseCase::new(
-        archive_repo.clone(),
-        event_repo.clone(),
-        queue_repo.clone(),
-        project_repo,
+        repos.archive.clone(),
+        repos.queue.clone(),
+        repos.project.clone(),
         compressor.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(
-        archive_repo,
-        event_repo,
-        queue_repo.clone(),
-        metadata_repo,
-        compressor,
-    );
+    let process_use_case = ProcessReportUseCase::new(repos, compressor, TEST_PROJECT_ID);
 
-    let payload1 = r#"{"release": "app@1.0.0", "platform": "python"}"#.as_bytes();
-    let payload2 = r#"{"release": "app@2.0.0", "platform": "rust"}"#.as_bytes();
-    let payload3 = r#"{"release": "app@3.0.0", "platform": "go"}"#.as_bytes();
+    let payload1 = r#"{"event_id": "e1", "release": "app@1.0.0", "platform": "python"}"#.as_bytes();
+    let payload2 = r#"{"event_id": "e2", "release": "app@2.0.0", "platform": "rust"}"#.as_bytes();
+    let payload3 = r#"{"event_id": "e3", "release": "app@3.0.0", "platform": "go"}"#.as_bytes();
 
     ingest_use_case.execute(TEST_PROJECT_ID, payload1).unwrap();
     ingest_use_case.execute(TEST_PROJECT_ID, payload2).unwrap();

@@ -5,6 +5,5 @@ mod schema;
 
 pub use connection::{establish_connection_pool, run_migrations, SqlitePool};
 pub use repositories::{
-    ArchiveRepository, EventRepository, ProjectRepository, QueueRepository,
-    ReportMetadataRepository,
+    ArchiveRepository, NewReport, ProjectRepository, QueueRepository, Repositories,
 };

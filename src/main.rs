@@ -9,10 +9,7 @@ use crash_cache::config::Settings;
 use crash_cache::features::process_report::{ProcessReportUseCase, ProcessingWorker};
 use crash_cache::features::receive_report::{create_router, AppState, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
-use crash_cache::shared::persistence::{
-    establish_connection_pool, run_migrations, ArchiveRepository, EventRepository,
-    ProjectRepository, QueueRepository, ReportMetadataRepository,
-};
+use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
 #[tokio::main]
 async fn main() {
@@ -28,28 +25,17 @@ async fn main() {
     run_migrations(&pool);
     info!("Database initialized");
 
-    let archive_repo = ArchiveRepository::new(pool.clone());
-    let event_repo = EventRepository::new(pool.clone());
-    let queue_repo = QueueRepository::new(pool.clone());
-    let metadata_repo = ReportMetadataRepository::new(pool.clone());
-    let project_repo = ProjectRepository::new(pool);
+    let repos = Repositories::new(pool);
     let compressor = GzipCompressor::new();
 
     let ingest_use_case = IngestReportUseCase::new(
-        archive_repo.clone(),
-        event_repo.clone(),
-        queue_repo.clone(),
-        project_repo,
+        repos.archive.clone(),
+        repos.queue.clone(),
+        repos.project.clone(),
         compressor.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(
-        archive_repo,
-        event_repo,
-        queue_repo,
-        metadata_repo,
-        compressor,
-    );
+    let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, 1);
 
     let worker = ProcessingWorker::new(
         process_use_case,

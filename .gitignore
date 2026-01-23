@@ -1,2 +1,6 @@
 /target
 *.db
+
+# Debug files
+*.gz
+report_*.json

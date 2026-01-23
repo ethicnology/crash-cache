@@ -20,8 +20,8 @@ pub enum DomainError {
     #[error("Processing error: {0}")]
     Processing(String),
 
-    #[error("Max retries exceeded for event {0}")]
-    MaxRetriesExceeded(i32),
+    #[error("Max retries exceeded for archive {0}")]
+    MaxRetriesExceeded(String),
 
     #[error("Project not found: {0}")]
     ProjectNotFound(i32),
