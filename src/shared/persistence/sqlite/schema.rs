@@ -199,7 +199,7 @@ diesel::table! {
     stacktrace (id) {
         id -> Integer,
         hash -> Text,
-        issue_id -> Nullable<Integer>,
+        fingerprint_hash -> Nullable<Text>,
         frames_json -> Binary,
     }
 }
@@ -276,7 +276,6 @@ diesel::joinable!(report -> exception_message (exception_message_id));
 diesel::joinable!(report -> stacktrace (stacktrace_id));
 diesel::joinable!(report -> issue (issue_id));
 diesel::joinable!(issue -> lookup_exception_type (exception_type_id));
-diesel::joinable!(stacktrace -> issue (issue_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     project,

@@ -379,7 +379,7 @@ pub struct NewIssueModel {
 pub struct StacktraceModel {
     pub id: i32,
     pub hash: String,
-    pub issue_id: Option<i32>,
+    pub fingerprint_hash: Option<String>,
     pub frames_json: Vec<u8>,
 }
 
@@ -387,7 +387,7 @@ pub struct StacktraceModel {
 #[diesel(table_name = stacktrace)]
 pub struct NewStacktraceModel {
     pub hash: String,
-    pub issue_id: Option<i32>,
+    pub fingerprint_hash: Option<String>,
     pub frames_json: Vec<u8>,
 }
 

@@ -477,7 +477,7 @@ impl ProcessReportUseCase {
                 Some(
                     self.repos
                         .stacktrace
-                        .get_or_create(hash, issue_id, &frames_json)
+                        .get_or_create(hash, fingerprint_hash.clone(), &frames_json)
                         .map_err(|e| DomainError::Database(e.to_string()))?,
                 )
             }

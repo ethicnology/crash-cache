@@ -154,7 +154,7 @@ erDiagram
     stacktrace {
         INTEGER id PK
         TEXT hash UK
-        INTEGER issue_id FK
+        TEXT fingerprint_hash FK
         BLOB frames_json
     }
     
@@ -224,7 +224,7 @@ erDiagram
     exception_message ||--o{ report : "exception_msg"
     stacktrace ||--o{ report : "stacktrace"
     issue ||--o{ report : "issue"
-    issue ||--o{ stacktrace : "has"
+    issue ||--o{ stacktrace : "fingerprint"
 ```
 
 ## Table Summary
@@ -271,4 +271,4 @@ flowchart LR
 | `idx_report_issue` | report | issue_id | Group by issue |
 | `idx_report_user` | report | user_id | Filter by user |
 | `idx_processing_queue_next_retry` | processing_queue | next_retry_at | Retry scheduling |
-| `idx_stacktrace_issue` | stacktrace | issue_id | Find stacktraces by issue |
+| `idx_stacktrace_fingerprint` | stacktrace | fingerprint_hash | Find stacktraces by fingerprint |

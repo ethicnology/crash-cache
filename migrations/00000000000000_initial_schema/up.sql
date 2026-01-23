@@ -155,9 +155,9 @@ CREATE TABLE IF NOT EXISTS issue (
 CREATE TABLE IF NOT EXISTS stacktrace (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     hash TEXT UNIQUE NOT NULL,
-    issue_id INTEGER,
+    fingerprint_hash TEXT,
     frames_json BLOB NOT NULL,
-    FOREIGN KEY (issue_id) REFERENCES issue(id)
+    FOREIGN KEY (fingerprint_hash) REFERENCES issue(fingerprint_hash)
 );
 
 -- ============================================
@@ -234,4 +234,4 @@ CREATE INDEX IF NOT EXISTS idx_report_timestamp ON report(timestamp);
 CREATE INDEX IF NOT EXISTS idx_report_issue ON report(issue_id);
 CREATE INDEX IF NOT EXISTS idx_report_user ON report(user_id);
 CREATE INDEX IF NOT EXISTS idx_processing_queue_next_retry ON processing_queue(next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_stacktrace_issue ON stacktrace(issue_id);
+CREATE INDEX IF NOT EXISTS idx_stacktrace_fingerprint ON stacktrace(fingerprint_hash);

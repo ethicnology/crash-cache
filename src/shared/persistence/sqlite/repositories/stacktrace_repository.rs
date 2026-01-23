@@ -20,7 +20,7 @@ impl StacktraceRepository {
     pub fn get_or_create(
         &self,
         hash: &str,
-        issue_id: Option<i32>,
+        fingerprint_hash: Option<String>,
         frames_json: &[u8],
     ) -> Result<i32, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
@@ -36,7 +36,7 @@ impl StacktraceRepository {
 
         let new_record = NewStacktraceModel {
             hash: hash.to_string(),
-            issue_id,
+            fingerprint_hash,
             frames_json: frames_json.to_vec(),
         };
 
@@ -62,11 +62,11 @@ impl StacktraceRepository {
             .optional()
     }
 
-    pub fn find_by_issue_id(&self, issue_id: i32) -> Result<Vec<StacktraceModel>, diesel::result::Error> {
+    pub fn find_by_fingerprint(&self, fingerprint_hash: &str) -> Result<Vec<StacktraceModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
         stacktrace::table
-            .filter(stacktrace::issue_id.eq(issue_id))
+            .filter(stacktrace::fingerprint_hash.eq(fingerprint_hash))
             .select(StacktraceModel::as_select())
             .load::<StacktraceModel>(&mut conn)
     }

@@ -1,5 +1,5 @@
 -- Drop indexes
-DROP INDEX IF EXISTS idx_stacktrace_issue;
+DROP INDEX IF EXISTS idx_stacktrace_fingerprint;
 DROP INDEX IF EXISTS idx_processing_queue_next_retry;
 DROP INDEX IF EXISTS idx_report_user;
 DROP INDEX IF EXISTS idx_report_issue;
