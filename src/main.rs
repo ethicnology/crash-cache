@@ -1,6 +1,6 @@
 use axum::extract::DefaultBodyLimit;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::Semaphore;
@@ -9,7 +9,7 @@ use tracing_subscriber::FmtSubscriber;
 
 use crash_cache::config::Settings;
 use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
-use crash_cache::features::ingest::{create_router, AppState, IngestReportUseCase};
+use crash_cache::features::ingest::{create_router, AppState, HealthStats, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
@@ -29,7 +29,7 @@ async fn main() {
     run_migrations(&pool);
     info!("Database initialized");
 
-    let repos = Repositories::new(pool);
+    let repos = Repositories::new(pool.clone());
     let compressor = GzipCompressor::new();
 
     let ingest_use_case = IngestReportUseCase::new(
@@ -60,6 +60,8 @@ async fn main() {
     let app_state = AppState {
         ingest_use_case,
         compression_semaphore,
+        pool,
+        health_cache: Arc::new(RwLock::new(HealthStats::default())),
     };
     let app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
 

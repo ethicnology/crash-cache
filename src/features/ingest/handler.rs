@@ -6,25 +6,40 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use diesel::prelude::*;
+use diesel::sql_query;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 
 use crate::shared::domain::DomainError;
 use crate::shared::parser::Envelope;
+use crate::shared::persistence::SqlitePool;
 
 use super::IngestReportUseCase;
 
 const MAX_UNCOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Default)]
+pub struct HealthStats {
+    archives: i64,
+    reports: i64,
+    queue: i64,
+    updated_at: Option<Instant>,
+}
 
 #[derive(Clone)]
 pub struct AppState {
     pub ingest_use_case: IngestReportUseCase,
     pub compression_semaphore: Arc<Semaphore>,
+    pub pool: SqlitePool,
+    pub health_cache: Arc<RwLock<HealthStats>>,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -225,9 +240,66 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     Ok(decompressed)
 }
 
-async fn health_check() -> impl IntoResponse {
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = get_cached_stats(&state);
+    
     Json(serde_json::json!({
         "status": "ok",
-        "service": "crash-cache"
+        "service": "crash-cache",
+        "stats": {
+            "ingested": stats.archives,
+            "digested": stats.reports,
+            "queued": stats.queue
+        }
     }))
+}
+
+fn get_cached_stats(state: &AppState) -> HealthStats {
+    {
+        let cache = state.health_cache.read().unwrap();
+        if let Some(updated_at) = cache.updated_at {
+            if updated_at.elapsed() < HEALTH_CACHE_TTL {
+                return cache.clone();
+            }
+        }
+    }
+
+    let mut conn = match state.pool.get() {
+        Ok(c) => c,
+        Err(_) => return HealthStats::default(),
+    };
+
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        c: i64,
+    }
+
+    let archives = sql_query("SELECT COUNT(*) as c FROM archive")
+        .get_result::<Count>(&mut conn)
+        .map(|r| r.c)
+        .unwrap_or(0);
+
+    let reports = sql_query("SELECT COUNT(*) as c FROM report")
+        .get_result::<Count>(&mut conn)
+        .map(|r| r.c)
+        .unwrap_or(0);
+
+    let queue = sql_query("SELECT COUNT(*) as c FROM processing_queue")
+        .get_result::<Count>(&mut conn)
+        .map(|r| r.c)
+        .unwrap_or(0);
+
+    let new_stats = HealthStats {
+        archives,
+        reports,
+        queue,
+        updated_at: Some(Instant::now()),
+    };
+
+    if let Ok(mut cache) = state.health_cache.write() {
+        *cache = new_stats.clone();
+    }
+
+    new_stats
 }
