@@ -54,6 +54,16 @@ impl ReportRepository {
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
+        let exists: i64 = report::table
+            .filter(report::event_id.eq(&new_report.event_id))
+            .count()
+            .get_result(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        if exists > 0 {
+            return Err(DomainError::DuplicateEventId(new_report.event_id));
+        }
+
         let model = NewReportModel {
             event_id: new_report.event_id,
             archive_hash: new_report.archive_hash,

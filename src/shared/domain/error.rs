@@ -28,4 +28,7 @@ pub enum DomainError {
 
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
+
+    #[error("Duplicate event_id: {0}")]
+    DuplicateEventId(String),
 }

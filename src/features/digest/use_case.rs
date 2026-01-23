@@ -34,6 +34,14 @@ impl DigestReportUseCase {
                     processed_count += 1;
                     info!(archive_hash = %item.archive_hash, "Successfully processed report");
                 }
+                Err(DomainError::DuplicateEventId(event_id)) => {
+                    info!(
+                        archive_hash = %item.archive_hash,
+                        event_id = %event_id,
+                        "Duplicate event_id, skipping (already processed)"
+                    );
+                    self.repos.queue.remove(&item.archive_hash)?;
+                }
                 Err(e) => {
                     self.handle_failure(item, e)?;
                 }
