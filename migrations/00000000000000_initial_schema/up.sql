@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS project (
 CREATE TABLE IF NOT EXISTS archive (
     hash TEXT PRIMARY KEY NOT NULL,
     compressed_payload BLOB NOT NULL,
-    original_size INTEGER NOT NULL,
+    original_size INTEGER,
     created_at TIMESTAMP NOT NULL
 );
 

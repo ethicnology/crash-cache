@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -10,6 +11,8 @@ use crash_cache::features::process_report::{ProcessReportUseCase, ProcessingWork
 use crash_cache::features::receive_report::{create_router, AppState, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
+
+const MAX_BODY_SIZE: usize = 1 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -32,7 +35,6 @@ async fn main() {
         repos.archive.clone(),
         repos.queue.clone(),
         repos.project.clone(),
-        compressor.clone(),
     );
 
     let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, 1);
@@ -49,7 +51,7 @@ async fn main() {
     });
 
     let app_state = AppState { ingest_use_case };
-    let app = create_router(app_state);
+    let app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
 
     let addr = settings.server_addr();
     info!(addr = %addr, "Server listening");

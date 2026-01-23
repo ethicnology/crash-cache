@@ -1,3 +1,5 @@
+use sha2::{Digest, Sha256};
+
 use crate::features::receive_report::IngestReportUseCase;
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::SentryReport;
@@ -27,6 +29,15 @@ fn sample_sentry_payload() -> Vec<u8> {
     }"#
     .as_bytes()
     .to_vec()
+}
+
+fn compress_and_hash(payload: &[u8]) -> (String, Vec<u8>) {
+    let compressor = GzipCompressor::new();
+    let compressed = compressor.compress(payload).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(&compressed);
+    let hash = hex::encode(hasher.finalize());
+    (hash, compressed)
 }
 
 #[test]
@@ -71,13 +82,13 @@ fn test_process_extracts_and_stores_report() {
         repos.archive.clone(),
         repos.queue.clone(),
         repos.project.clone(),
-        compressor.clone(),
     );
 
     let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, project_id);
 
     let payload = sample_sentry_payload();
-    ingest_use_case.execute(project_id, &payload).unwrap();
+    let (hash, compressed) = compress_and_hash(&payload);
+    ingest_use_case.execute(project_id, hash, compressed, None).unwrap();
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 1);
@@ -107,7 +118,6 @@ fn test_process_multiple_events() {
         repos.archive.clone(),
         repos.queue.clone(),
         repos.project.clone(),
-        compressor.clone(),
     );
 
     let process_use_case = ProcessReportUseCase::new(repos, compressor, project_id);
@@ -116,9 +126,13 @@ fn test_process_multiple_events() {
     let payload2 = r#"{"event_id": "e2", "release": "app@2.0.0", "platform": "rust"}"#.as_bytes();
     let payload3 = r#"{"event_id": "e3", "release": "app@3.0.0", "platform": "go"}"#.as_bytes();
 
-    ingest_use_case.execute(project_id, payload1).unwrap();
-    ingest_use_case.execute(project_id, payload2).unwrap();
-    ingest_use_case.execute(project_id, payload3).unwrap();
+    let (h1, c1) = compress_and_hash(payload1);
+    let (h2, c2) = compress_and_hash(payload2);
+    let (h3, c3) = compress_and_hash(payload3);
+
+    ingest_use_case.execute(project_id, h1, c1, None).unwrap();
+    ingest_use_case.execute(project_id, h2, c2, None).unwrap();
+    ingest_use_case.execute(project_id, h3, c3, None).unwrap();
 
     assert_eq!(queue_repo.count_pending().unwrap(), 3);
 

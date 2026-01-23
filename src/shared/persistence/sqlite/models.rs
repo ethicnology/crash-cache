@@ -31,7 +31,7 @@ pub struct NewProjectModel {
 pub struct ArchiveModel {
     pub hash: String,
     pub compressed_payload: Vec<u8>,
-    pub original_size: i32,
+    pub original_size: Option<i32>,
     pub created_at: NaiveDateTime,
 }
 

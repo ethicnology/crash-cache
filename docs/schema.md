@@ -18,7 +18,7 @@ erDiagram
     archive {
         TEXT hash PK
         BLOB compressed_payload
-        INTEGER original_size
+        INTEGER original_size "NULL if received compressed"
         TIMESTAMP created_at
     }
     
