@@ -72,6 +72,14 @@ pub fn handle(pool: &SqlitePool, yes: bool) {
         }
     }
 
+    println!("\n⏳ Resetting auto-increment counters...");
+
+    for table in TABLES_TO_CLEAR {
+        let _ = sql_query(format!("DELETE FROM sqlite_sequence WHERE name = '{}'", table))
+            .execute(&mut conn);
+    }
+    println!("   ✓ Sequences reset");
+
     println!("\n⏳ Re-queuing archives...");
 
     let result = sql_query(
