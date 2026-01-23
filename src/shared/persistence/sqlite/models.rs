@@ -7,11 +7,19 @@ use super::schema::*;
 // CORE MODELS
 // ============================================
 
-#[derive(Queryable, Selectable, Insertable, Debug)]
+#[derive(Queryable, Selectable, Debug)]
 #[diesel(table_name = project)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ProjectModel {
     pub id: i32,
+    pub public_key: Option<String>,
+    pub name: Option<String>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = project)]
+pub struct NewProjectModel {
     pub public_key: Option<String>,
     pub name: Option<String>,
     pub created_at: NaiveDateTime,

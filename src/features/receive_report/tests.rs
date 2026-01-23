@@ -1,19 +1,16 @@
 use sha2::{Digest, Sha256};
 
 use crate::shared::compression::GzipCompressor;
-use crate::shared::domain::Project;
 use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
 use super::IngestReportUseCase;
 
-const TEST_PROJECT_ID: i32 = 1;
-
-fn setup_test_db() -> Repositories {
+fn setup_test_db() -> (Repositories, i32) {
     let pool = establish_connection_pool(":memory:");
     run_migrations(&pool);
     let repos = Repositories::new(pool);
-    repos.project.save(&Project::new(TEST_PROJECT_ID)).unwrap();
-    repos
+    let project_id = repos.project.create(None, None).unwrap();
+    (repos, project_id)
 }
 
 fn sample_sentry_payload() -> Vec<u8> {
@@ -39,7 +36,7 @@ fn test_compute_sha256_hash() {
     hasher.update(payload);
     let expected = hex::encode(hasher.finalize());
 
-    let repos = setup_test_db();
+    let (repos, project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
     let use_case = IngestReportUseCase::new(
         repos.archive,
@@ -48,7 +45,7 @@ fn test_compute_sha256_hash() {
         compressor,
     );
 
-    let result = use_case.execute(TEST_PROJECT_ID, payload).unwrap();
+    let result = use_case.execute(project_id, payload).unwrap();
     assert_eq!(result, expected);
 }
 
@@ -66,7 +63,7 @@ fn test_gzip_compression_roundtrip() {
 
 #[test]
 fn test_ingest_stores_archive() {
-    let repos = setup_test_db();
+    let (repos, project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
     let archive_repo = repos.archive.clone();
     let queue_repo = repos.queue.clone();
@@ -78,7 +75,7 @@ fn test_ingest_stores_archive() {
     );
 
     let payload = sample_sentry_payload();
-    let hash = use_case.execute(TEST_PROJECT_ID, &payload).unwrap();
+    let hash = use_case.execute(project_id, &payload).unwrap();
 
     let archive = archive_repo.find_by_hash(&hash).unwrap();
     assert!(archive.is_some());
@@ -91,7 +88,7 @@ fn test_ingest_stores_archive() {
 
 #[test]
 fn test_deduplication_same_hash_reuses_archive() {
-    let repos = setup_test_db();
+    let (repos, project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
     let archive_repo = repos.archive.clone();
     let queue_repo = repos.queue.clone();
@@ -104,8 +101,8 @@ fn test_deduplication_same_hash_reuses_archive() {
 
     let payload = sample_sentry_payload();
 
-    let hash1 = use_case.execute(TEST_PROJECT_ID, &payload).unwrap();
-    let hash2 = use_case.execute(TEST_PROJECT_ID, &payload).unwrap();
+    let hash1 = use_case.execute(project_id, &payload).unwrap();
+    let hash2 = use_case.execute(project_id, &payload).unwrap();
 
     assert_eq!(hash1, hash2);
 
@@ -117,7 +114,7 @@ fn test_deduplication_same_hash_reuses_archive() {
 
 #[test]
 fn test_different_payloads_different_hashes() {
-    let repos = setup_test_db();
+    let (repos, project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
     let use_case = IngestReportUseCase::new(
         repos.archive,
@@ -129,15 +126,15 @@ fn test_different_payloads_different_hashes() {
     let payload1 = b"payload one";
     let payload2 = b"payload two";
 
-    let hash1 = use_case.execute(TEST_PROJECT_ID, payload1).unwrap();
-    let hash2 = use_case.execute(TEST_PROJECT_ID, payload2).unwrap();
+    let hash1 = use_case.execute(project_id, payload1).unwrap();
+    let hash2 = use_case.execute(project_id, payload2).unwrap();
 
     assert_ne!(hash1, hash2);
 }
 
 #[test]
 fn test_unknown_project_returns_error() {
-    let repos = setup_test_db();
+    let (repos, _project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
     let use_case = IngestReportUseCase::new(
         repos.archive,

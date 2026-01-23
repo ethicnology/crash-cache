@@ -1,14 +1,11 @@
 use clap::Subcommand;
 use uuid::Uuid;
 
-use crate::shared::domain::Project;
 use crate::shared::persistence::ProjectRepository;
 
 #[derive(Subcommand)]
 pub enum ProjectCommand {
     Create {
-        #[arg(short, long)]
-        id: i32,
         #[arg(short, long)]
         name: Option<String>,
         #[arg(short, long)]
@@ -23,15 +20,12 @@ pub enum ProjectCommand {
 
 pub fn handle(command: ProjectCommand, repo: &ProjectRepository, server_addr: &str) {
     match command {
-        ProjectCommand::Create { id, name, key } => {
+        ProjectCommand::Create { name, key } => {
             let public_key = key.unwrap_or_else(|| Uuid::new_v4().simple().to_string());
-            let project = Project::new(id)
-                .with_name(name)
-                .with_public_key(Some(public_key.clone()));
 
-            match repo.save(&project) {
-                Ok(_) => {
-                    println!("Project '{}' created successfully", id);
+            match repo.create(Some(public_key.clone()), name) {
+                Ok(id) => {
+                    println!("Project created with ID: {}", id);
                     println!("DSN: http://{}@{}/{}", public_key, server_addr, id);
                 }
                 Err(e) => eprintln!("Failed to create project: {}", e),

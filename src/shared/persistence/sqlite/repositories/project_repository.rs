@@ -2,7 +2,7 @@ use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
 use crate::shared::domain::{DomainError, Project};
-use crate::shared::persistence::sqlite::models::ProjectModel;
+use crate::shared::persistence::sqlite::models::{NewProjectModel, ProjectModel};
 use crate::shared::persistence::sqlite::schema::project;
 use crate::shared::persistence::SqlitePool;
 
@@ -16,17 +16,20 @@ impl ProjectRepository {
         Self { pool }
     }
 
-    pub fn save(&self, proj: &Project) -> Result<(), DomainError> {
+    pub fn create(
+        &self,
+        public_key: Option<String>,
+        name: Option<String>,
+    ) -> Result<i32, DomainError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let model = ProjectModel {
-            id: proj.id,
-            public_key: proj.public_key.clone(),
-            name: proj.name.clone(),
-            created_at: proj.created_at.naive_utc(),
+        let model = NewProjectModel {
+            public_key,
+            name,
+            created_at: chrono::Utc::now().naive_utc(),
         };
 
         diesel::insert_into(project::table)
@@ -34,7 +37,13 @@ impl ProjectRepository {
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        Ok(())
+        let id: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+            "last_insert_rowid()",
+        ))
+        .get_result(&mut conn)
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        Ok(id)
     }
 
     pub fn find_by_id(&self, id: i32) -> Result<Option<Project>, DomainError> {
