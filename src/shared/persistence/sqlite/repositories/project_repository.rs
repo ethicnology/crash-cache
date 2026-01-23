@@ -81,6 +81,20 @@ impl ProjectRepository {
         Ok(count > 0)
     }
 
+    /// Validates that the given public_key matches the project's stored key.
+    /// Returns Ok(true) if valid, Ok(false) if invalid key, Err if project not found.
+    pub fn validate_key(&self, id: i32, public_key: &str) -> Result<bool, DomainError> {
+        let project = self.find_by_id(id)?;
+        
+        match project {
+            Some(p) => match p.public_key {
+                Some(stored_key) => Ok(stored_key == public_key),
+                None => Ok(true), // No key configured = accept all
+            },
+            None => Err(DomainError::ProjectNotFound(id)),
+        }
+    }
+
     pub fn delete(&self, id: i32) -> Result<(), DomainError> {
         let mut conn = self
             .pool

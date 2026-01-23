@@ -26,6 +26,12 @@ pub enum DomainError {
     #[error("Project not found: {0}")]
     ProjectNotFound(i32),
 
+    #[error("Invalid public key for project {0}")]
+    InvalidPublicKey(i32),
+
+    #[error("Missing public key")]
+    MissingPublicKey,
+
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
 

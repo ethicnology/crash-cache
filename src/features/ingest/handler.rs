@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -9,6 +9,7 @@ use axum::{
 use diesel::prelude::*;
 use diesel::sql_query;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
@@ -19,11 +20,16 @@ use tracing::{error, info, warn};
 
 use crate::shared::domain::DomainError;
 use crate::shared::parser::Envelope;
-use crate::shared::persistence::SqlitePool;
+use crate::shared::persistence::{ProjectRepository, SqlitePool};
 
 use super::IngestReportUseCase;
 
 const MAX_UNCOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+pub struct SentryQueryParams {
+    pub sentry_key: Option<String>,
+}
 
 #[derive(Clone, Default)]
 pub struct HealthStats {
@@ -39,6 +45,7 @@ pub struct AppState {
     pub ingest_use_case: IngestReportUseCase,
     pub compression_semaphore: Arc<Semaphore>,
     pub pool: SqlitePool,
+    pub project_repo: ProjectRepository,
     pub health_cache: Arc<RwLock<HealthStats>>,
     pub health_cache_ttl: Duration,
 }
@@ -57,6 +64,7 @@ pub fn create_router(state: AppState) -> Router {
 async fn store_report(
     State(state): State<AppState>,
     Path(project_id): Path<i32>,
+    Query(query): Query<SentryQueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -65,6 +73,12 @@ async fn store_report(
         payload_size = body.len(),
         "Received store report"
     );
+
+    // Validate sentry_key
+    let sentry_key = extract_sentry_key(&headers, &query);
+    if let Err(response) = validate_project_key(&state.project_repo, project_id, sentry_key) {
+        return response;
+    }
 
     let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
         Ok(result) => result,
@@ -96,6 +110,7 @@ async fn store_report(
 async fn envelope_report(
     State(state): State<AppState>,
     Path(project_id): Path<i32>,
+    Query(query): Query<SentryQueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
@@ -104,6 +119,12 @@ async fn envelope_report(
         payload_size = body.len(),
         "Received envelope report"
     );
+
+    // Validate sentry_key
+    let sentry_key = extract_sentry_key(&headers, &query);
+    if let Err(response) = validate_project_key(&state.project_repo, project_id, sentry_key) {
+        return response;
+    }
 
     let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
         Ok(result) => result,
@@ -239,6 +260,71 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed)?;
     Ok(decompressed)
+}
+
+/// Extracts sentry_key from X-Sentry-Auth header or query params.
+/// Header format: "Sentry sentry_key=abc123, sentry_version=7, ..."
+fn extract_sentry_key(headers: &HeaderMap, query: &SentryQueryParams) -> Option<String> {
+    // Try query param first
+    if let Some(key) = &query.sentry_key {
+        return Some(key.clone());
+    }
+
+    // Try X-Sentry-Auth header
+    if let Some(auth_header) = headers.get("X-Sentry-Auth").and_then(|v| v.to_str().ok()) {
+        for part in auth_header.split(',') {
+            let part = part.trim();
+            if let Some(key) = part.strip_prefix("Sentry sentry_key=") {
+                return Some(key.to_string());
+            }
+            if let Some(key) = part.strip_prefix("sentry_key=") {
+                return Some(key.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn validate_project_key(
+    project_repo: &ProjectRepository,
+    project_id: i32,
+    sentry_key: Option<String>,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let key = match sentry_key {
+        Some(k) => k,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Missing sentry_key"})),
+            ));
+        }
+    };
+
+    match project_repo.validate_key(project_id, &key) {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            warn!(project_id = %project_id, "Invalid public key");
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Invalid public key"})),
+            ))
+        }
+        Err(DomainError::ProjectNotFound(pid)) => {
+            warn!(project_id = %pid, "Project not found");
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Project not found"})),
+            ))
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to validate key");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            ))
+        }
+    }
 }
 
 async fn health_check(State(state): State<AppState>) -> impl IntoResponse {

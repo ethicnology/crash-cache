@@ -62,6 +62,7 @@ async fn main() {
         ingest_use_case,
         compression_semaphore,
         pool,
+        project_repo: repos.project.clone(),
         health_cache: Arc::new(RwLock::new(HealthStats::default())),
         health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
     };
