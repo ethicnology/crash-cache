@@ -7,6 +7,7 @@ pub struct Settings {
     pub worker_interval_secs: u64,
     pub worker_budget_secs: u64,
     pub max_concurrent_compressions: usize,
+    pub health_cache_ttl_secs: u64,
 }
 
 impl Settings {
@@ -32,6 +33,10 @@ impl Settings {
                 .unwrap_or_else(|_| "16".to_string())
                 .parse()
                 .expect("MAX_CONCURRENT_COMPRESSIONS must be a valid number"),
+            health_cache_ttl_secs: env::var("HEALTH_CACHE_TTL_SECS")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()
+                .expect("HEALTH_CACHE_TTL_SECS must be a valid number"),
         }
     }
 

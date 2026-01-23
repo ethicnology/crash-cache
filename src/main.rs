@@ -1,6 +1,7 @@
 use axum::extract::DefaultBodyLimit;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio::sync::Semaphore;
@@ -62,6 +63,7 @@ async fn main() {
         compression_semaphore,
         pool,
         health_cache: Arc::new(RwLock::new(HealthStats::default())),
+        health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
     };
     let app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
 

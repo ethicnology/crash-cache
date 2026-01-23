@@ -24,7 +24,6 @@ use crate::shared::persistence::SqlitePool;
 use super::IngestReportUseCase;
 
 const MAX_UNCOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
-const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Default)]
 pub struct HealthStats {
@@ -41,6 +40,7 @@ pub struct AppState {
     pub compression_semaphore: Arc<Semaphore>,
     pub pool: SqlitePool,
     pub health_cache: Arc<RwLock<HealthStats>>,
+    pub health_cache_ttl: Duration,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -260,7 +260,7 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
     {
         let cache = state.health_cache.read().unwrap();
         if let Some(updated_at) = cache.updated_at {
-            if updated_at.elapsed() < HEALTH_CACHE_TTL {
+            if updated_at.elapsed() < state.health_cache_ttl {
                 return cache.clone();
             }
         }
