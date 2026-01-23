@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::Semaphore;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -50,7 +51,16 @@ async fn main() {
         worker.run().await;
     });
 
-    let app_state = AppState { ingest_use_case };
+    let compression_semaphore = Arc::new(Semaphore::new(settings.max_concurrent_compressions));
+    info!(
+        max_concurrent_compressions = settings.max_concurrent_compressions,
+        "Compression semaphore initialized"
+    );
+
+    let app_state = AppState {
+        ingest_use_case,
+        compression_semaphore,
+    };
     let app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
 
     let addr = settings.server_addr();

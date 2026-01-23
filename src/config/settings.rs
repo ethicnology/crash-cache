@@ -6,6 +6,7 @@ pub struct Settings {
     pub server_port: u16,
     pub worker_interval_secs: u64,
     pub worker_budget_secs: u64,
+    pub max_concurrent_compressions: usize,
 }
 
 impl Settings {
@@ -27,6 +28,10 @@ impl Settings {
                 .unwrap_or_else(|_| "50".to_string())
                 .parse()
                 .expect("WORKER_BUDGET_SECS must be a valid number"),
+            max_concurrent_compressions: env::var("MAX_CONCURRENT_COMPRESSIONS")
+                .unwrap_or_else(|_| "16".to_string())
+                .parse()
+                .expect("MAX_CONCURRENT_COMPRESSIONS must be a valid number"),
         }
     }
 

@@ -9,7 +9,7 @@ use axum::{
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
-use std::sync::OnceLock;
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
@@ -21,19 +21,10 @@ use super::IngestReportUseCase;
 
 const MAX_UNCOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
 
-static COMPRESSION_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
-
-fn get_semaphore() -> &'static Semaphore {
-    COMPRESSION_SEMAPHORE.get_or_init(|| {
-        let limit = num_cpus::get() * 4;
-        info!(concurrent_compressions = limit, "Compression semaphore initialized");
-        Semaphore::new(limit)
-    })
-}
-
 #[derive(Clone)]
 pub struct AppState {
     pub ingest_use_case: IngestReportUseCase,
+    pub compression_semaphore: Arc<Semaphore>,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -59,7 +50,7 @@ async fn store_report(
         "Received store report"
     );
 
-    let (hash, compressed, original_size) = match prepare_payload(&headers, &body).await {
+    let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
         Ok(result) => result,
         Err(response) => return response,
     };
@@ -98,7 +89,7 @@ async fn envelope_report(
         "Received envelope report"
     );
 
-    let (hash, compressed, original_size) = match prepare_payload(&headers, &body).await {
+    let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
         Ok(result) => result,
         Err(response) => return response,
     };
@@ -164,6 +155,7 @@ async fn envelope_report(
 async fn prepare_payload(
     headers: &HeaderMap,
     body: &[u8],
+    semaphore: &Semaphore,
 ) -> Result<(String, Vec<u8>, Option<i32>), (StatusCode, Json<serde_json::Value>)> {
     let is_gzip = headers
         .get("content-encoding")
@@ -184,7 +176,7 @@ async fn prepare_payload(
             ));
         }
 
-        let permit = get_semaphore().try_acquire();
+        let permit = semaphore.try_acquire();
         if permit.is_err() {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
