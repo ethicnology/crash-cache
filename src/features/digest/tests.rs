@@ -1,11 +1,11 @@
 use sha2::{Digest, Sha256};
 
-use crate::features::receive_report::IngestReportUseCase;
+use crate::features::ingest::IngestReportUseCase;
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::SentryReport;
 use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
-use super::ProcessReportUseCase;
+use super::DigestReportUseCase;
 
 fn setup_test_db() -> (Repositories, i32) {
     let pool = establish_connection_pool(":memory:");
@@ -84,7 +84,7 @@ fn test_process_extracts_and_stores_report() {
         repos.project.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos.clone(), compressor, project_id);
 
     let payload = sample_sentry_payload();
     let (hash, compressed) = compress_and_hash(&payload);
@@ -102,7 +102,7 @@ fn test_process_batch_returns_zero_when_empty() {
     let (repos, project_id) = setup_test_db();
     let compressor = GzipCompressor::new();
 
-    let process_use_case = ProcessReportUseCase::new(repos, compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos, compressor, project_id);
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 0);
@@ -120,7 +120,7 @@ fn test_process_multiple_events() {
         repos.project.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(repos, compressor, project_id);
+    let process_use_case = DigestReportUseCase::new(repos, compressor, project_id);
 
     let payload1 = r#"{"event_id": "e1", "release": "app@1.0.0", "platform": "python"}"#.as_bytes();
     let payload2 = r#"{"event_id": "e2", "release": "app@2.0.0", "platform": "rust"}"#.as_bytes();

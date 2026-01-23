@@ -4,23 +4,23 @@ use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use super::ProcessReportUseCase;
+use super::DigestReportUseCase;
 
-pub struct ProcessingWorker {
-    process_use_case: ProcessReportUseCase,
+pub struct DigestWorker {
+    digest_use_case: DigestReportUseCase,
     interval_secs: u64,
     processing_budget_secs: u64,
     shutdown: Arc<AtomicBool>,
 }
 
-impl ProcessingWorker {
+impl DigestWorker {
     pub fn new(
-        process_use_case: ProcessReportUseCase,
+        digest_use_case: DigestReportUseCase,
         interval_secs: u64,
         processing_budget_secs: u64,
     ) -> Self {
         Self {
-            process_use_case,
+            digest_use_case,
             interval_secs,
             processing_budget_secs,
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -74,7 +74,7 @@ impl ProcessingWorker {
                 break;
             }
 
-            match self.process_use_case.process_batch(batch_size) {
+            match self.digest_use_case.process_batch(batch_size) {
                 Ok(processed) => {
                     total_processed += processed;
                     if processed == 0 {

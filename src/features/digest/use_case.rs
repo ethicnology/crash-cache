@@ -9,13 +9,13 @@ const MAX_RETRIES: i32 = 3;
 const BACKOFF_BASE_SECONDS: i64 = 30;
 
 #[derive(Clone)]
-pub struct ProcessReportUseCase {
+pub struct DigestReportUseCase {
     repos: Repositories,
     compressor: GzipCompressor,
     project_id: i32,
 }
 
-impl ProcessReportUseCase {
+impl DigestReportUseCase {
     pub fn new(repos: Repositories, compressor: GzipCompressor, project_id: i32) -> Self {
         Self {
             repos,

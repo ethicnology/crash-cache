@@ -8,8 +8,8 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use crash_cache::config::Settings;
-use crash_cache::features::process_report::{ProcessReportUseCase, ProcessingWorker};
-use crash_cache::features::receive_report::{create_router, AppState, IngestReportUseCase};
+use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
+use crash_cache::features::ingest::{create_router, AppState, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 
@@ -38,10 +38,10 @@ async fn main() {
         repos.project.clone(),
     );
 
-    let process_use_case = ProcessReportUseCase::new(repos.clone(), compressor, 1);
+    let digest_use_case = DigestReportUseCase::new(repos.clone(), compressor, 1);
 
-    let worker = ProcessingWorker::new(
-        process_use_case,
+    let worker = DigestWorker::new(
+        digest_use_case,
         settings.worker_interval_secs,
         settings.worker_budget_secs,
     );
