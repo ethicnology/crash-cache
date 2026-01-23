@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use crash_cache::config::Settings;
-use crash_cache::features::cli::{project, ProjectCommand};
+use crash_cache::features::cli::{project, ruminate, ProjectCommand};
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, ProjectRepository};
 
 #[derive(Parser)]
@@ -18,6 +18,11 @@ enum Commands {
         #[command(subcommand)]
         action: ProjectCommand,
     },
+    #[command(about = "Re-digest all archives from scratch (clears all data except archives and projects)")]
+    Ruminate {
+        #[arg(short, long, help = "Skip confirmation prompt")]
+        yes: bool,
+    },
 }
 
 fn main() {
@@ -28,11 +33,12 @@ fn main() {
     let pool = establish_connection_pool(&settings.database_url);
     run_migrations(&pool);
 
-    let project_repo = ProjectRepository::new(pool);
+    let project_repo = ProjectRepository::new(pool.clone());
 
     let server_addr = settings.server_addr();
 
     match cli.command {
         Commands::Project { action } => project::handle(action, &project_repo, &server_addr),
+        Commands::Ruminate { yes } => ruminate::handle(&pool, yes),
     }
 }
