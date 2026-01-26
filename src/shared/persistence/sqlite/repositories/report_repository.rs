@@ -41,6 +41,7 @@ pub struct NewReport {
     pub exception_message_id: Option<i32>,
     pub stacktrace_id: Option<i32>,
     pub issue_id: Option<i32>,
+    pub session_id: Option<i32>,
 }
 
 impl ReportRepository {
@@ -91,6 +92,7 @@ impl ReportRepository {
             exception_message_id: new_report.exception_message_id,
             stacktrace_id: new_report.stacktrace_id,
             issue_id: new_report.issue_id,
+            session_id: new_report.session_id,
         };
 
         diesel::insert_into(report::table)

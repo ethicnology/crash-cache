@@ -16,11 +16,16 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::shared::domain::DomainError;
-use crate::shared::parser::Envelope;
-use crate::shared::persistence::{ProjectRepository, SqlitePool};
+use crate::shared::parser::{Envelope, SentrySession};
+use crate::shared::persistence::sqlite::models::NewSessionModel;
+use crate::shared::persistence::{
+    ProjectRepository, SessionRepository, SqlitePool,
+    UnwrapSessionEnvironmentRepository, UnwrapSessionReleaseRepository,
+    UnwrapSessionStatusRepository,
+};
 
 use super::IngestReportUseCase;
 
@@ -48,6 +53,11 @@ pub struct AppState {
     pub project_repo: ProjectRepository,
     pub health_cache: Arc<RwLock<HealthStats>>,
     pub health_cache_ttl: Duration,
+    // Session repositories
+    pub session_repo: SessionRepository,
+    pub session_status_repo: UnwrapSessionStatusRepository,
+    pub session_release_repo: UnwrapSessionReleaseRepository,
+    pub session_environment_repo: UnwrapSessionEnvironmentRepository,
 }
 
 /// Creates the API router (rate-limited routes)
@@ -166,17 +176,41 @@ async fn envelope_report(
         envelope.items.iter().map(|i| (&i.header.item_type, i.payload.len())).collect::<Vec<_>>()
     );
 
-    if envelope.find_event_payload().is_none() {
-        warn!("No event found in envelope");
+    // Check for event payload
+    let has_event = envelope.find_event_payload().is_some();
+
+    if !has_event {
+        // Session-only envelope - process sessions immediately (no archive/queue)
+        let session_payloads = envelope.find_session_payloads();
+        let mut sessions_stored = 0;
+        for session_data in session_payloads {
+            if let Some(session) = SentrySession::parse(session_data) {
+                match store_session(&state, project_id, &session) {
+                    Ok(sid_id) => {
+                        sessions_stored += 1;
+                        debug!(sid = %session.sid, sid_id = %sid_id, status = %session.status, "Session stored");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, sid = %session.sid, "Failed to store session");
+                    }
+                }
+            }
+        }
+        if sessions_stored > 0 {
+            info!(sessions_stored = %sessions_stored, "Session-only envelope processed");
+            return (StatusCode::OK, Json(serde_json::json!({"sessions": sessions_stored})));
+        }
+        warn!("No event or session found in envelope");
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "No event in envelope"})),
+            Json(serde_json::json!({"error": "No event or session in envelope"})),
         );
     }
 
+    // Event envelope - archive it (sessions will be processed during digest)
     match state.ingest_use_case.execute(project_id, hash.clone(), compressed, original_size) {
         Ok(_) => {
-            info!(hash = %hash, "Envelope report stored successfully");
+            info!(hash = %hash, "Envelope archived for digest");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
         Err(DomainError::ProjectNotFound(pid)) => {
@@ -194,6 +228,56 @@ async fn envelope_report(
             )
         }
     }
+}
+
+/// Stores a session and returns the session_id for linking with reports
+fn store_session(state: &AppState, project_id: i32, session: &SentrySession) -> Result<i32, String> {
+    // Get or create status ID
+    let status_id = state
+        .session_status_repo
+        .get_or_create(&session.status)
+        .map_err(|e: diesel::result::Error| e.to_string())?;
+
+    // Get or create release ID (optional)
+    let release_id = match &session.attrs.release {
+        Some(r) => Some(
+            state
+                .session_release_repo
+                .get_or_create(r)
+                .map_err(|e: diesel::result::Error| e.to_string())?,
+        ),
+        None => None,
+    };
+
+    // Get or create environment ID (optional)
+    let environment_id = match &session.attrs.environment {
+        Some(env) => Some(
+            state
+                .session_environment_repo
+                .get_or_create(env)
+                .map_err(|e: diesel::result::Error| e.to_string())?,
+        ),
+        None => None,
+    };
+
+    let new_session = NewSessionModel {
+        project_id,
+        sid: session.sid.clone(),
+        init: if session.init { 1 } else { 0 },
+        started_at: session.started.clone(),
+        timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+        errors: session.errors,
+        status_id,
+        release_id,
+        environment_id,
+    };
+
+    let session_id = state
+        .session_repo
+        .upsert(new_session)
+        .map_err(|e: diesel::result::Error| e.to_string())?;
+
+    Ok(session_id)
 }
 
 async fn prepare_payload(
@@ -274,22 +358,27 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
 fn extract_sentry_key(headers: &HeaderMap, query: &SentryQueryParams) -> Option<String> {
     // Try query param first
     if let Some(key) = &query.sentry_key {
+        debug!(key = %key, "Found sentry_key in query params");
         return Some(key.clone());
     }
 
     // Try X-Sentry-Auth header
     if let Some(auth_header) = headers.get("X-Sentry-Auth").and_then(|v| v.to_str().ok()) {
+        debug!(header = %auth_header, "Parsing X-Sentry-Auth header");
         for part in auth_header.split(',') {
             let part = part.trim();
             if let Some(key) = part.strip_prefix("Sentry sentry_key=") {
+                debug!(key = %key, "Extracted key from 'Sentry sentry_key=' prefix");
                 return Some(key.to_string());
             }
             if let Some(key) = part.strip_prefix("sentry_key=") {
+                debug!(key = %key, "Extracted key from 'sentry_key=' prefix");
                 return Some(key.to_string());
             }
         }
     }
 
+    debug!("No sentry_key found in request");
     None
 }
 
@@ -308,10 +397,12 @@ fn validate_project_key(
         }
     };
 
+    debug!(project_id = %project_id, received_key = %key, "Validating public key");
+
     match project_repo.validate_key(project_id, &key) {
         Ok(true) => Ok(()),
         Ok(false) => {
-            warn!(project_id = %project_id, "Invalid public key");
+            warn!(project_id = %project_id, received_key = %key, "Invalid public key");
             Err((
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"error": "Invalid public key"})),

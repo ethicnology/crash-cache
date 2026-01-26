@@ -37,6 +37,38 @@ erDiagram
     }
     
     %% ============================================
+    %% SESSION TABLES
+    %% ============================================
+    
+    unwrap_session_status {
+        INTEGER id PK
+        TEXT value UK
+    }
+    
+    unwrap_session_release {
+        INTEGER id PK
+        TEXT value UK
+    }
+    
+    unwrap_session_environment {
+        INTEGER id PK
+        TEXT value UK
+    }
+    
+    session {
+        INTEGER id PK
+        INTEGER project_id FK
+        TEXT sid UK
+        INTEGER init
+        TEXT started_at
+        TEXT timestamp
+        INTEGER errors
+        INTEGER status_id FK
+        INTEGER release_id FK
+        INTEGER environment_id FK
+    }
+    
+    %% ============================================
     %% UNWRAP TABLES
     %% ============================================
     
@@ -195,6 +227,7 @@ erDiagram
         INTEGER exception_message_id FK
         INTEGER stacktrace_id FK
         INTEGER issue_id FK
+        INTEGER session_id FK
     }
     
     %% ============================================
@@ -231,6 +264,12 @@ erDiagram
     unwrap_exception_message ||--o{ report : "exception_msg"
     unwrap_stacktrace ||--o{ report : "stacktrace"
     issue ||--o{ report : "issue"
+    
+    project ||--o{ session : "tracks"
+    session ||--o{ report : "session"
+    unwrap_session_status ||--o{ session : "status"
+    unwrap_session_release ||--o{ session : "release"
+    unwrap_session_environment ||--o{ session : "environment"
 ```
 
 ## Table Summary
@@ -238,6 +277,7 @@ erDiagram
 | Category | Tables | Purpose |
 |----------|--------|---------|
 | **Core** | `project`, `archive`, `queue`, `queue_error` | Project config, raw storage, async processing |
+| **Session** | `session`, `unwrap_session_*` | User session tracking and health metrics |
 | **Unwrap** | 20 `unwrap_*` tables | Deduplicated string values (normalized) |
 | **Issue** | `issue` | Error grouping by fingerprint |
 | **Main** | `report` | Central table with 22 FK references |
@@ -248,13 +288,15 @@ erDiagram
 flowchart LR
     subgraph Ingestion
         A[Sentry SDK] -->|envelope| B[/api/project_id/envelope/]
-        B --> C[archive]
+        B -->|event envelope| C[archive]
+        B -->|session-only| S[session]
         C --> D[queue]
     end
     
     subgraph Processing
         D -->|worker| E[DigestReportUseCase]
         E -->|decompress| C
+        E -->|extract session| SS[session]
         E -->|parse & normalize| F[unwrap_* tables]
         E -->|extract| G[issue]
         E -->|create| H[report]
@@ -265,8 +307,13 @@ flowchart LR
         F --> H
         G --> H
         C --> H
+        SS -->|link via sid_id| H
+        S -->|normalize| J[unwrap_session_* tables]
+        SS -->|normalize| J
     end
 ```
+
+**Note:** Sessions in event envelopes are processed during digest (not ingest), ensuring atomic processing of related data.
 
 ## Indexes
 
@@ -278,3 +325,7 @@ flowchart LR
 | `idx_report_issue` | report | issue_id | Group by issue |
 | `idx_report_user` | report | user_id | Filter by user |
 | `idx_unwrap_stacktrace_fingerprint` | unwrap_stacktrace | fingerprint_hash | Find stacktraces by fingerprint |
+| `idx_session_project` | session | project_id | Filter sessions by project |
+| `idx_session_status` | session | status_id | Filter sessions by status |
+| `idx_session_sid` | session | sid | Find session by sid |
+| `idx_report_session` | report | session_id | Find reports by session |

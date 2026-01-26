@@ -102,4 +102,12 @@ impl Envelope {
             .find(|item| item.header.item_type == "transaction")
             .map(|item| item.payload.as_slice())
     }
+
+    pub fn find_session_payloads(&self) -> Vec<&[u8]> {
+        self.items
+            .iter()
+            .filter(|item| item.header.item_type == "session")
+            .map(|item| item.payload.as_slice())
+            .collect()
+    }
 }

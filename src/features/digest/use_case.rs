@@ -1,9 +1,10 @@
 use sha2::{Digest, Sha256};
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryReport};
-use crate::shared::parser::Envelope;
+use crate::shared::parser::{Envelope, SentrySession};
+use crate::shared::persistence::sqlite::models::NewSessionModel;
 use crate::shared::persistence::{NewReport, Repositories};
 
 #[derive(Clone)]
@@ -57,6 +58,9 @@ impl DigestReportUseCase {
             })?;
 
         let decompressed = self.compressor.decompress(&archive.compressed_payload)?;
+
+        // Try to parse as envelope first to extract session
+        let session_id = self.extract_and_store_session(&decompressed, archive.project_id)?;
 
         // Try parsing as raw JSON first, then as envelope format
         let sentry_report: SentryReport = self.parse_payload(&decompressed)?;
@@ -112,12 +116,94 @@ impl DigestReportUseCase {
             exception_message_id,
             stacktrace_id,
             issue_id,
+            session_id,
         };
 
         self.repos.report.create(new_report)?;
         self.repos.queue.remove(&item.archive_hash)?;
 
         Ok(())
+    }
+
+    /// Extract session from envelope and store it, returning the session_id if found
+    fn extract_and_store_session(
+        &self,
+        decompressed: &[u8],
+        project_id: i32,
+    ) -> Result<Option<i32>, DomainError> {
+        // Try to parse as envelope
+        let envelope = match Envelope::parse(decompressed) {
+            Some(env) => env,
+            None => return Ok(None), // Not an envelope format, no session
+        };
+
+        // Find session payloads
+        let session_payloads = envelope.find_session_payloads();
+        if session_payloads.is_empty() {
+            return Ok(None);
+        }
+
+        // Process the first (typically only) session
+        let session_data = session_payloads[0];
+        let session = match SentrySession::parse(session_data) {
+            Some(s) => s,
+            None => {
+                warn!("Failed to parse session payload");
+                return Ok(None);
+            }
+        };
+
+        // Get or create status_id
+        let status_id = self
+            .repos
+            .session_status
+            .get_or_create(&session.status)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        // Get or create release_id (optional)
+        let release_id = match &session.attrs.release {
+            Some(r) => Some(
+                self.repos
+                    .session_release
+                    .get_or_create(r)
+                    .map_err(|e| DomainError::Database(e.to_string()))?,
+            ),
+            None => None,
+        };
+
+        // Get or create environment_id (optional)
+        let environment_id = match &session.attrs.environment {
+            Some(env) => Some(
+                self.repos
+                    .session_environment
+                    .get_or_create(env)
+                    .map_err(|e| DomainError::Database(e.to_string()))?,
+            ),
+            None => None,
+        };
+
+        let new_session = NewSessionModel {
+            project_id,
+            sid: session.sid.clone(),
+            init: if session.init { 1 } else { 0 },
+            started_at: session.started.clone(),
+            timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+            errors: session.errors,
+            status_id,
+            release_id,
+            environment_id,
+        };
+
+        match self.repos.session.upsert(new_session) {
+            Ok(session_id) => {
+                debug!(sid = %session.sid, session_id = %session_id, status = %session.status, "Session stored during digest");
+                Ok(Some(session_id))
+            }
+            Err(e) => {
+                warn!(error = %e, sid = %session.sid, "Failed to store session during digest");
+                Ok(None)
+            }
+        }
     }
 
     fn get_or_create_unwrap<F>(

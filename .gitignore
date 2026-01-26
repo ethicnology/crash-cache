@@ -4,3 +4,4 @@
 # Debug files
 *.gz
 report_*.json
+.env
