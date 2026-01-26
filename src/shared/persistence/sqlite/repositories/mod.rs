@@ -1,3 +1,4 @@
+mod analytics_repository;
 mod archive_repository;
 mod device_specs_repository;
 mod exception_message_repository;
@@ -6,8 +7,10 @@ mod unwrap_repository;
 mod project_repository;
 mod queue_repository;
 mod report_repository;
+mod session_repository;
 mod stacktrace_repository;
 
+pub use analytics_repository::AnalyticsRepository;
 pub use archive_repository::ArchiveRepository;
 pub use device_specs_repository::DeviceSpecsRepository;
 pub use exception_message_repository::ExceptionMessageRepository;
@@ -16,6 +19,7 @@ pub use unwrap_repository::*;
 pub use project_repository::ProjectRepository;
 pub use queue_repository::{QueueRepository, QueueErrorRepository};
 pub use report_repository::{NewReport, ReportRepository};
+pub use session_repository::*;
 pub use stacktrace_repository::StacktraceRepository;
 
 use super::SqlitePool;
@@ -48,6 +52,13 @@ pub struct Repositories {
     pub exception_message: ExceptionMessageRepository,
     pub stacktrace: StacktraceRepository,
     pub issue: IssueRepository,
+    // Session repositories
+    pub session: SessionRepository,
+    pub session_status: UnwrapSessionStatusRepository,
+    pub session_release: UnwrapSessionReleaseRepository,
+    pub session_environment: UnwrapSessionEnvironmentRepository,
+    // Analytics
+    pub analytics: AnalyticsRepository,
 }
 
 impl Repositories {
@@ -78,7 +89,14 @@ impl Repositories {
             exception_type: UnwrapExceptionTypeRepository::new(pool.clone()),
             exception_message: ExceptionMessageRepository::new(pool.clone()),
             stacktrace: StacktraceRepository::new(pool.clone()),
-            issue: IssueRepository::new(pool),
+            issue: IssueRepository::new(pool.clone()),
+            // Session repositories
+            session: SessionRepository::new(pool.clone()),
+            session_status: UnwrapSessionStatusRepository::new(pool.clone()),
+            session_release: UnwrapSessionReleaseRepository::new(pool.clone()),
+            session_environment: UnwrapSessionEnvironmentRepository::new(pool.clone()),
+            // Analytics
+            analytics: AnalyticsRepository::new(pool),
         }
     }
 }

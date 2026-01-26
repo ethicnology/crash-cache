@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod compression;
 pub mod domain;
 pub mod parser;

@@ -1,7 +1,16 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
-use super::schema::*;
+use super::schema::{
+    project, archive, queue, queue_error,
+    unwrap_session_status, unwrap_session_release, unwrap_session_environment, session,
+    unwrap_platform, unwrap_environment, unwrap_connection_type, unwrap_orientation,
+    unwrap_os_name, unwrap_os_version, unwrap_manufacturer, unwrap_brand, unwrap_model,
+    unwrap_chipset, unwrap_locale_code, unwrap_timezone, unwrap_app_name, unwrap_app_version,
+    unwrap_app_build, unwrap_user, unwrap_exception_type, unwrap_device_specs,
+    unwrap_exception_message, unwrap_stacktrace, issue, report,
+    bucket_rate_limit_global, bucket_rate_limit_dsn, bucket_rate_limit_subnet, bucket_request_latency,
+};
 
 // ============================================
 // CORE MODELS
@@ -68,6 +77,82 @@ pub struct NewQueueErrorModel {
     pub archive_hash: String,
     pub error: String,
     pub created_at: NaiveDateTime,
+}
+
+// ============================================
+// SESSION MODELS
+// ============================================
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = unwrap_session_status)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct UnwrapSessionStatusModel {
+    pub id: i32,
+    pub value: String,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = unwrap_session_status)]
+pub struct NewUnwrapSessionStatusModel {
+    pub value: String,
+}
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = unwrap_session_release)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct UnwrapSessionReleaseModel {
+    pub id: i32,
+    pub value: String,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = unwrap_session_release)]
+pub struct NewUnwrapSessionReleaseModel {
+    pub value: String,
+}
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = unwrap_session_environment)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct UnwrapSessionEnvironmentModel {
+    pub id: i32,
+    pub value: String,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = unwrap_session_environment)]
+pub struct NewUnwrapSessionEnvironmentModel {
+    pub value: String,
+}
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = session)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct SessionModel {
+    pub id: i32,
+    pub project_id: i32,
+    pub sid: String,
+    pub init: i32,
+    pub started_at: String,
+    pub timestamp: String,
+    pub errors: i32,
+    pub status_id: i32,
+    pub release_id: Option<i32>,
+    pub environment_id: Option<i32>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = session)]
+pub struct NewSessionModel {
+    pub project_id: i32,
+    pub sid: String,
+    pub init: i32,
+    pub started_at: String,
+    pub timestamp: String,
+    pub errors: i32,
+    pub status_id: i32,
+    pub release_id: Option<i32>,
+    pub environment_id: Option<i32>,
 }
 
 // ============================================
@@ -442,6 +527,7 @@ pub struct ReportModel {
     pub exception_message_id: Option<i32>,
     pub stacktrace_id: Option<i32>,
     pub issue_id: Option<i32>,
+    pub session_id: Option<i32>,
 }
 
 #[derive(Insertable, Debug)]
@@ -480,4 +566,87 @@ pub struct NewReportModel {
     pub exception_message_id: Option<i32>,
     pub stacktrace_id: Option<i32>,
     pub issue_id: Option<i32>,
+    pub session_id: Option<i32>,
+}
+
+// ============================================
+// ANALYTICS BUCKET MODELS
+// ============================================
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = bucket_rate_limit_global)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct BucketRateLimitGlobalModel {
+    pub id: i32,
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = bucket_rate_limit_global)]
+pub struct NewBucketRateLimitGlobalModel {
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = bucket_rate_limit_dsn)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct BucketRateLimitDsnModel {
+    pub id: i32,
+    pub dsn: String,
+    pub project_id: Option<i32>,
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = bucket_rate_limit_dsn)]
+pub struct NewBucketRateLimitDsnModel {
+    pub dsn: String,
+    pub project_id: Option<i32>,
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = bucket_rate_limit_subnet)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct BucketRateLimitSubnetModel {
+    pub id: i32,
+    pub subnet: String,
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = bucket_rate_limit_subnet)]
+pub struct NewBucketRateLimitSubnetModel {
+    pub subnet: String,
+    pub bucket_start: NaiveDateTime,
+    pub hit_count: i32,
+}
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = bucket_request_latency)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct BucketRequestLatencyModel {
+    pub id: i32,
+    pub endpoint: String,
+    pub bucket_start: NaiveDateTime,
+    pub request_count: i32,
+    pub total_ms: i32,
+    pub min_ms: Option<i32>,
+    pub max_ms: Option<i32>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = bucket_request_latency)]
+pub struct NewBucketRequestLatencyModel {
+    pub endpoint: String,
+    pub bucket_start: NaiveDateTime,
+    pub request_count: i32,
+    pub total_ms: i32,
+    pub min_ms: Option<i32>,
+    pub max_ms: Option<i32>,
 }

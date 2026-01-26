@@ -12,10 +12,12 @@ use tracing_subscriber::FmtSubscriber;
 use crash_cache::config::Settings;
 use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
 use crash_cache::features::ingest::{create_api_router, create_health_router, AppState, HealthStats, IngestReportUseCase};
+use crash_cache::shared::analytics::AnalyticsCollector;
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 use crash_cache::shared::rate_limit::{
     create_global_rate_limiter, create_ip_rate_limiter, create_project_rate_limiter,
+    AnalyticsLayer, RateLimitAnalyticsLayer, RateLimitType,
 };
 
 const MAX_BODY_SIZE: usize = 1 * 1024 * 1024;
@@ -36,6 +38,17 @@ async fn main() {
 
     let repos = Repositories::new(pool.clone());
     let compressor = GzipCompressor::new();
+
+    let analytics_collector = AnalyticsCollector::new(
+        repos.analytics.clone(),
+        Some(settings.analytics_flush_interval_secs),
+        Some(settings.analytics_retention_days),
+    );
+    info!(
+        flush_interval = settings.analytics_flush_interval_secs,
+        retention_days = settings.analytics_retention_days,
+        "Analytics collector initialized"
+    );
 
     let ingest_use_case = IngestReportUseCase::new(
         repos.archive.clone(),
@@ -69,6 +82,11 @@ async fn main() {
         project_repo: repos.project.clone(),
         health_cache: Arc::new(RwLock::new(HealthStats::default())),
         health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
+        // Session repositories
+        session_repo: repos.session.clone(),
+        session_status_repo: repos.session_status.clone(),
+        session_release_repo: repos.session_release.clone(),
+        session_environment_repo: repos.session_environment.clone(),
     };
 
     info!(
@@ -78,22 +96,28 @@ async fn main() {
         "Rate limiting configured (0 = disabled)"
     );
 
-    // Build API router with rate limiting layers
-    let mut api_router = create_api_router(app_state.clone()).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
+    let mut api_router = create_api_router(app_state.clone())
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+        .layer(AnalyticsLayer::new(analytics_collector.clone()));
 
-    // Apply rate limiters to API routes only (order: per-IP → per-project → global)
     if let Some(layer) = create_ip_rate_limiter(settings.rate_limit_per_ip_per_sec) {
-        api_router = api_router.layer(layer);
+        api_router = api_router
+            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Ip))
+            .layer(layer);
         info!("Per-IP rate limiter enabled");
     }
 
     if let Some(layer) = create_project_rate_limiter(settings.rate_limit_per_project_per_sec) {
-        api_router = api_router.layer(layer);
+        api_router = api_router
+            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Project))
+            .layer(layer);
         info!("Per-project rate limiter enabled");
     }
 
     if let Some(layer) = create_global_rate_limiter(settings.rate_limit_global_per_sec) {
-        api_router = api_router.layer(layer);
+        api_router = api_router
+            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Global))
+            .layer(layer);
         info!("Global rate limiter enabled");
     }
 

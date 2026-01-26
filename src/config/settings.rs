@@ -12,6 +12,9 @@ pub struct Settings {
     pub rate_limit_global_per_sec: u64,
     pub rate_limit_per_ip_per_sec: u64,
     pub rate_limit_per_project_per_sec: u64,
+    // Analytics
+    pub analytics_flush_interval_secs: u64,
+    pub analytics_retention_days: i64,
 }
 
 impl Settings {
@@ -53,6 +56,14 @@ impl Settings {
                 .unwrap_or_else(|_| "50".to_string())
                 .parse()
                 .expect("RATE_LIMIT_PER_PROJECT_PER_SEC must be a valid number"),
+            analytics_flush_interval_secs: env::var("ANALYTICS_FLUSH_INTERVAL_SECS")
+                .unwrap_or_else(|_| "10".to_string())
+                .parse()
+                .expect("ANALYTICS_FLUSH_INTERVAL_SECS must be a valid number"),
+            analytics_retention_days: env::var("ANALYTICS_RETENTION_DAYS")
+                .unwrap_or_else(|_| "30".to_string())
+                .parse()
+                .expect("ANALYTICS_RETENTION_DAYS must be a valid number"),
         }
     }
 

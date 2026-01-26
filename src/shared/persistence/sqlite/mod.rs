@@ -1,9 +1,11 @@
 mod connection;
-mod models;
+pub mod models;
 mod repositories;
-mod schema;
+pub mod schema;
 
 pub use connection::{establish_connection_pool, run_migrations, SqlitePool};
 pub use repositories::{
-    ArchiveRepository, NewReport, ProjectRepository, QueueRepository, QueueErrorRepository, Repositories,
+    AnalyticsRepository, ArchiveRepository, NewReport, ProjectRepository, QueueRepository,
+    QueueErrorRepository, Repositories, SessionRepository, UnwrapSessionEnvironmentRepository,
+    UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
 };

@@ -34,6 +34,43 @@ CREATE TABLE IF NOT EXISTS queue_error (
 );
 
 -- ============================================
+-- SESSION TABLES
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS unwrap_session_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    value TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unwrap_session_release (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    value TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unwrap_session_environment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    value TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    project_id INTEGER NOT NULL,
+    sid TEXT NOT NULL,
+    init INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    errors INTEGER NOT NULL DEFAULT 0,
+    status_id INTEGER NOT NULL,
+    release_id INTEGER,
+    environment_id INTEGER,
+    UNIQUE(project_id, sid),
+    FOREIGN KEY (project_id) REFERENCES project(id),
+    FOREIGN KEY (status_id) REFERENCES unwrap_session_status(id),
+    FOREIGN KEY (release_id) REFERENCES unwrap_session_release(id),
+    FOREIGN KEY (environment_id) REFERENCES unwrap_session_environment(id)
+);
+
+-- ============================================
 -- UNWRAP TABLES (id / value UNIQUE)
 -- ============================================
 
@@ -201,6 +238,7 @@ CREATE TABLE IF NOT EXISTS report (
     exception_message_id INTEGER,
     stacktrace_id INTEGER,
     issue_id INTEGER,
+    session_id INTEGER,
 
     FOREIGN KEY (archive_hash) REFERENCES archive(hash),
     FOREIGN KEY (project_id) REFERENCES project(id),
@@ -224,7 +262,8 @@ CREATE TABLE IF NOT EXISTS report (
     FOREIGN KEY (exception_type_id) REFERENCES unwrap_exception_type(id),
     FOREIGN KEY (exception_message_id) REFERENCES unwrap_exception_message(id),
     FOREIGN KEY (stacktrace_id) REFERENCES unwrap_stacktrace(id),
-    FOREIGN KEY (issue_id) REFERENCES issue(id)
+    FOREIGN KEY (issue_id) REFERENCES issue(id),
+    FOREIGN KEY (session_id) REFERENCES session(id)
 );
 
 -- ============================================
@@ -237,3 +276,50 @@ CREATE INDEX IF NOT EXISTS idx_report_timestamp ON report(timestamp);
 CREATE INDEX IF NOT EXISTS idx_report_issue ON report(issue_id);
 CREATE INDEX IF NOT EXISTS idx_report_user ON report(user_id);
 CREATE INDEX IF NOT EXISTS idx_unwrap_stacktrace_fingerprint ON unwrap_stacktrace(fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_session_project ON session(project_id);
+CREATE INDEX IF NOT EXISTS idx_session_status ON session(status_id);
+CREATE INDEX IF NOT EXISTS idx_session_sid ON session(sid);
+CREATE INDEX IF NOT EXISTS idx_report_session ON report(session_id);
+
+-- ============================================
+-- ANALYTICS BUCKET TABLES
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS bucket_rate_limit_global (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    bucket_start TIMESTAMP NOT NULL UNIQUE,
+    hit_count INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS bucket_rate_limit_dsn (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    dsn TEXT NOT NULL,
+    project_id INTEGER,
+    bucket_start TIMESTAMP NOT NULL,
+    hit_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(dsn, bucket_start)
+);
+
+CREATE TABLE IF NOT EXISTS bucket_rate_limit_subnet (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    subnet TEXT NOT NULL,
+    bucket_start TIMESTAMP NOT NULL,
+    hit_count INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(subnet, bucket_start)
+);
+
+CREATE TABLE IF NOT EXISTS bucket_request_latency (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    endpoint TEXT NOT NULL,
+    bucket_start TIMESTAMP NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    total_ms INTEGER NOT NULL DEFAULT 0,
+    min_ms INTEGER,
+    max_ms INTEGER,
+    UNIQUE(endpoint, bucket_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bucket_rate_limit_global_start ON bucket_rate_limit_global(bucket_start);
+CREATE INDEX IF NOT EXISTS idx_bucket_rate_limit_dsn_start ON bucket_rate_limit_dsn(bucket_start);
+CREATE INDEX IF NOT EXISTS idx_bucket_rate_limit_subnet_start ON bucket_rate_limit_subnet(bucket_start);
+CREATE INDEX IF NOT EXISTS idx_bucket_request_latency_start ON bucket_request_latency(bucket_start);

@@ -30,6 +30,16 @@ const TABLES_TO_CLEAR: &[&str] = &[
     "unwrap_exception_type",
     "queue",
     "queue_error",
+    // Session tables
+    "session",
+    "unwrap_session_status",
+    "unwrap_session_release",
+    "unwrap_session_environment",
+    // Analytics bucket tables
+    "bucket_rate_limit_global",
+    "bucket_rate_limit_dsn",
+    "bucket_rate_limit_subnet",
+    "bucket_request_latency",
 ];
 
 pub fn handle(pool: &SqlitePool, yes: bool) {

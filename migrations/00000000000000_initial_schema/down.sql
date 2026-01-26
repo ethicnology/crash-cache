@@ -1,4 +1,20 @@
+-- Drop analytics bucket indexes
+DROP INDEX IF EXISTS idx_bucket_request_latency_start;
+DROP INDEX IF EXISTS idx_bucket_rate_limit_subnet_start;
+DROP INDEX IF EXISTS idx_bucket_rate_limit_dsn_start;
+DROP INDEX IF EXISTS idx_bucket_rate_limit_global_start;
+
+-- Drop analytics bucket tables
+DROP TABLE IF EXISTS bucket_request_latency;
+DROP TABLE IF EXISTS bucket_rate_limit_subnet;
+DROP TABLE IF EXISTS bucket_rate_limit_dsn;
+DROP TABLE IF EXISTS bucket_rate_limit_global;
+
 -- Drop indexes
+DROP INDEX IF EXISTS idx_report_session;
+DROP INDEX IF EXISTS idx_session_sid;
+DROP INDEX IF EXISTS idx_session_status;
+DROP INDEX IF EXISTS idx_session_project;
 DROP INDEX IF EXISTS idx_unwrap_stacktrace_fingerprint;
 DROP INDEX IF EXISTS idx_report_user;
 DROP INDEX IF EXISTS idx_report_issue;
@@ -9,6 +25,12 @@ DROP INDEX IF EXISTS idx_archive_project;
 -- Drop main tables (reverse order of dependencies)
 DROP TABLE IF EXISTS report;
 DROP TABLE IF EXISTS issue;
+
+-- Drop session tables
+DROP TABLE IF EXISTS session;
+DROP TABLE IF EXISTS unwrap_session_environment;
+DROP TABLE IF EXISTS unwrap_session_release;
+DROP TABLE IF EXISTS unwrap_session_status;
 
 -- Drop unwrap tables
 DROP TABLE IF EXISTS unwrap_stacktrace;

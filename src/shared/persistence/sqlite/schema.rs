@@ -39,6 +39,89 @@ diesel::table! {
 }
 
 // ============================================
+// ANALYTICS BUCKET TABLES
+// ============================================
+
+diesel::table! {
+    bucket_rate_limit_global (id) {
+        id -> Integer,
+        bucket_start -> Timestamp,
+        hit_count -> Integer,
+    }
+}
+
+diesel::table! {
+    bucket_rate_limit_dsn (id) {
+        id -> Integer,
+        dsn -> Text,
+        project_id -> Nullable<Integer>,
+        bucket_start -> Timestamp,
+        hit_count -> Integer,
+    }
+}
+
+diesel::table! {
+    bucket_rate_limit_subnet (id) {
+        id -> Integer,
+        subnet -> Text,
+        bucket_start -> Timestamp,
+        hit_count -> Integer,
+    }
+}
+
+diesel::table! {
+    bucket_request_latency (id) {
+        id -> Integer,
+        endpoint -> Text,
+        bucket_start -> Timestamp,
+        request_count -> Integer,
+        total_ms -> Integer,
+        min_ms -> Nullable<Integer>,
+        max_ms -> Nullable<Integer>,
+    }
+}
+
+// ============================================
+// SESSION TABLES
+// ============================================
+
+diesel::table! {
+    unwrap_session_status (id) {
+        id -> Integer,
+        value -> Text,
+    }
+}
+
+diesel::table! {
+    unwrap_session_release (id) {
+        id -> Integer,
+        value -> Text,
+    }
+}
+
+diesel::table! {
+    unwrap_session_environment (id) {
+        id -> Integer,
+        value -> Text,
+    }
+}
+
+diesel::table! {
+    session (id) {
+        id -> Integer,
+        project_id -> Integer,
+        sid -> Text,
+        init -> Integer,
+        started_at -> Text,
+        timestamp -> Text,
+        errors -> Integer,
+        status_id -> Integer,
+        release_id -> Nullable<Integer>,
+        environment_id -> Nullable<Integer>,
+    }
+}
+
+// ============================================
 // UNWRAP TABLES
 // ============================================
 
@@ -247,6 +330,7 @@ diesel::table! {
         exception_message_id -> Nullable<Integer>,
         stacktrace_id -> Nullable<Integer>,
         issue_id -> Nullable<Integer>,
+        session_id -> Nullable<Integer>,
     }
 }
 
@@ -280,12 +364,21 @@ diesel::joinable!(report -> unwrap_exception_message (exception_message_id));
 diesel::joinable!(report -> unwrap_stacktrace (stacktrace_id));
 diesel::joinable!(report -> issue (issue_id));
 diesel::joinable!(issue -> unwrap_exception_type (exception_type_id));
+diesel::joinable!(session -> project (project_id));
+diesel::joinable!(session -> unwrap_session_status (status_id));
+diesel::joinable!(session -> unwrap_session_release (release_id));
+diesel::joinable!(session -> unwrap_session_environment (environment_id));
+diesel::joinable!(report -> session (session_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     project,
     archive,
     queue,
     queue_error,
+    session,
+    unwrap_session_status,
+    unwrap_session_release,
+    unwrap_session_environment,
     unwrap_platform,
     unwrap_environment,
     unwrap_connection_type,
@@ -308,4 +401,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     unwrap_stacktrace,
     issue,
     report,
+    bucket_rate_limit_global,
+    bucket_rate_limit_dsn,
+    bucket_rate_limit_subnet,
+    bucket_request_latency,
 );
