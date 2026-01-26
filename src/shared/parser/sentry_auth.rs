@@ -41,9 +41,7 @@ impl SentryAuth {
         }
 
         let sentry_key = params.get("sentry_key").cloned();
-        if sentry_key.is_none() {
-            return None;
-        }
+        sentry_key.as_ref()?;
 
         Some(Self {
             sentry_key,

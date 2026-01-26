@@ -7,6 +7,18 @@ use crate::shared::persistence::sqlite::schema::unwrap_device_specs;
 
 type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
 
+/// Parameters for device specifications lookup/creation
+#[derive(Default, Clone)]
+pub struct DeviceSpecsParams {
+    pub screen_width: Option<i32>,
+    pub screen_height: Option<i32>,
+    pub screen_density: Option<f32>,
+    pub screen_dpi: Option<i32>,
+    pub processor_count: Option<i32>,
+    pub memory_size: Option<i64>,
+    pub archs: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct DeviceSpecsRepository {
     pool: SqlitePool,
@@ -17,45 +29,36 @@ impl DeviceSpecsRepository {
         Self { pool }
     }
 
-    pub fn get_or_create(
-        &self,
-        screen_width: Option<i32>,
-        screen_height: Option<i32>,
-        screen_density: Option<f32>,
-        screen_dpi: Option<i32>,
-        processor_count: Option<i32>,
-        memory_size: Option<i64>,
-        archs: Option<String>,
-    ) -> Result<i32, diesel::result::Error> {
+    pub fn get_or_create(&self, params: DeviceSpecsParams) -> Result<i32, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
         let mut query = unwrap_device_specs::table.into_boxed();
 
-        query = match screen_width {
+        query = match params.screen_width {
             Some(v) => query.filter(unwrap_device_specs::screen_width.eq(v)),
             None => query.filter(unwrap_device_specs::screen_width.is_null()),
         };
-        query = match screen_height {
+        query = match params.screen_height {
             Some(v) => query.filter(unwrap_device_specs::screen_height.eq(v)),
             None => query.filter(unwrap_device_specs::screen_height.is_null()),
         };
-        query = match screen_density {
+        query = match params.screen_density {
             Some(v) => query.filter(unwrap_device_specs::screen_density.eq(v)),
             None => query.filter(unwrap_device_specs::screen_density.is_null()),
         };
-        query = match screen_dpi {
+        query = match params.screen_dpi {
             Some(v) => query.filter(unwrap_device_specs::screen_dpi.eq(v)),
             None => query.filter(unwrap_device_specs::screen_dpi.is_null()),
         };
-        query = match processor_count {
+        query = match params.processor_count {
             Some(v) => query.filter(unwrap_device_specs::processor_count.eq(v)),
             None => query.filter(unwrap_device_specs::processor_count.is_null()),
         };
-        query = match memory_size {
+        query = match params.memory_size {
             Some(v) => query.filter(unwrap_device_specs::memory_size.eq(v)),
             None => query.filter(unwrap_device_specs::memory_size.is_null()),
         };
-        query = match &archs {
+        query = match &params.archs {
             Some(v) => query.filter(unwrap_device_specs::archs.eq(v)),
             None => query.filter(unwrap_device_specs::archs.is_null()),
         };
@@ -70,13 +73,13 @@ impl DeviceSpecsRepository {
         }
 
         let new_record = NewUnwrapDeviceSpecsModel {
-            screen_width,
-            screen_height,
-            screen_density,
-            screen_dpi,
-            processor_count,
-            memory_size,
-            archs: archs.clone(),
+            screen_width: params.screen_width,
+            screen_height: params.screen_height,
+            screen_density: params.screen_density,
+            screen_dpi: params.screen_dpi,
+            processor_count: params.processor_count,
+            memory_size: params.memory_size,
+            archs: params.archs,
         };
 
         diesel::insert_into(unwrap_device_specs::table)

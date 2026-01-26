@@ -136,51 +136,57 @@ pub struct SentryStacktraceFrame {
 impl SentryReport {
     pub fn extract_app_version(&self) -> Option<String> {
         if let Some(release) = &self.release {
-            if let Some(version) = release.split('@').last() {
+            if let Some(version) = release.split('@').next_back() {
                 return Some(version.to_string());
             }
             return Some(release.clone());
         }
-        if let Some(contexts) = &self.contexts {
-            if let Some(app) = &contexts.app {
-                if let Some(version) = &app.app_version {
-                    return Some(version.clone());
-                }
-            }
+        if let Some(version) = self
+            .contexts
+            .as_ref()
+            .and_then(|c| c.app.as_ref())
+            .and_then(|a| a.app_version.clone())
+        {
+            return Some(version);
         }
         None
     }
 
     pub fn extract_error_info(&self) -> (Option<String>, Option<String>) {
-        if let Some(exception) = &self.exception {
-            if let Some(values) = &exception.values {
-                if let Some(first) = values.first() {
-                    return (first.exception_type.clone(), first.value.clone());
-                }
-            }
+        if let Some(first) = self
+            .exception
+            .as_ref()
+            .and_then(|e| e.values.as_ref())
+            .and_then(|v| v.first())
+        {
+            return (first.exception_type.clone(), first.value.clone());
         }
         (None, None)
     }
 
     pub fn extract_sdk_info(&self) -> (Option<String>, Option<String>) {
-        if let Some(sdk) = &self.sdk {
-            return (sdk.name.clone(), sdk.version.clone());
-        }
-        (None, None)
+        self.sdk
+            .as_ref()
+            .map(|sdk| (sdk.name.clone(), sdk.version.clone()))
+            .unwrap_or((None, None))
     }
 
     pub fn extract_in_app_frames(&self) -> Vec<&SentryStacktraceFrame> {
         let mut frames = Vec::new();
-        if let Some(exception) = &self.exception {
-            if let Some(values) = &exception.values {
-                for value in values {
-                    if let Some(stacktrace) = &value.stacktrace {
-                        if let Some(st_frames) = &stacktrace.frames {
-                            for frame in st_frames {
-                                if frame.in_app.unwrap_or(false) {
-                                    frames.push(frame);
-                                }
-                            }
+        if let Some(values) = self
+            .exception
+            .as_ref()
+            .and_then(|e| e.values.as_ref())
+        {
+            for value in values {
+                if let Some(st_frames) = value
+                    .stacktrace
+                    .as_ref()
+                    .and_then(|s| s.frames.as_ref())
+                {
+                    for frame in st_frames {
+                        if frame.in_app.unwrap_or(false) {
+                            frames.push(frame);
                         }
                     }
                 }

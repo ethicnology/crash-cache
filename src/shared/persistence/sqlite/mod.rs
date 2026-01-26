@@ -5,7 +5,8 @@ pub mod schema;
 
 pub use connection::{establish_connection_pool, run_migrations, SqlitePool};
 pub use repositories::{
-    AnalyticsRepository, ArchiveRepository, NewReport, ProjectRepository, QueueRepository,
-    QueueErrorRepository, Repositories, SessionRepository, UnwrapSessionEnvironmentRepository,
-    UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
+    AnalyticsRepository, ArchiveRepository, DeviceSpecsParams, NewReport, ProjectRepository,
+    QueueRepository, QueueErrorRepository, Repositories, SessionRepository,
+    UnwrapSessionEnvironmentRepository, UnwrapSessionReleaseRepository,
+    UnwrapSessionStatusRepository,
 };

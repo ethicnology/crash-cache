@@ -5,7 +5,13 @@ use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryReport};
 use crate::shared::parser::{Envelope, SentrySession};
 use crate::shared::persistence::sqlite::models::NewSessionModel;
-use crate::shared::persistence::{NewReport, Repositories};
+use crate::shared::persistence::{DeviceSpecsParams, NewReport, Repositories};
+
+// Type aliases for complex return types
+type DeviceIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+type LocaleIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+type AppIds = (Option<i32>, Option<i32>, Option<i32>);
+type ExceptionIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
 
 #[derive(Clone)]
 pub struct DigestReportUseCase {
@@ -255,7 +261,7 @@ impl DigestReportUseCase {
     fn extract_device_info(
         &self,
         report: &SentryReport,
-    ) -> Result<(Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>), DomainError> {
+    ) -> Result<DeviceIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
 
         let manufacturer_id = match device.and_then(|d| d.manufacturer.as_ref()) {
@@ -306,15 +312,15 @@ impl DigestReportUseCase {
             Some(
                 self.repos
                     .device_specs
-                    .get_or_create(
-                        d.screen_width_pixels,
-                        d.screen_height_pixels,
-                        d.screen_density,
-                        d.screen_dpi,
-                        d.processor_count,
-                        d.memory_size,
-                        archs_json,
-                    )
+                    .get_or_create(DeviceSpecsParams {
+                        screen_width: d.screen_width_pixels,
+                        screen_height: d.screen_height_pixels,
+                        screen_density: d.screen_density,
+                        screen_dpi: d.screen_dpi,
+                        processor_count: d.processor_count,
+                        memory_size: d.memory_size,
+                        archs: archs_json,
+                    })
                     .map_err(|e| DomainError::Database(e.to_string()))?,
             )
         } else {
@@ -333,7 +339,7 @@ impl DigestReportUseCase {
     fn extract_locale_info(
         &self,
         report: &SentryReport,
-    ) -> Result<(Option<i32>, Option<i32>, Option<i32>, Option<i32>), DomainError> {
+    ) -> Result<LocaleIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
         let culture = report.contexts.as_ref().and_then(|c| c.culture.as_ref());
 
@@ -394,7 +400,7 @@ impl DigestReportUseCase {
     fn extract_app_info(
         &self,
         report: &SentryReport,
-    ) -> Result<(Option<i32>, Option<i32>, Option<i32>), DomainError> {
+    ) -> Result<AppIds, DomainError> {
         let app = report.contexts.as_ref().and_then(|c| c.app.as_ref());
 
         let release_cache: std::cell::OnceCell<(Option<String>, Option<String>, Option<String>)> =
@@ -482,7 +488,7 @@ impl DigestReportUseCase {
     fn extract_exception_info(
         &self,
         report: &SentryReport,
-    ) -> Result<(Option<i32>, Option<i32>, Option<i32>, Option<i32>), DomainError> {
+    ) -> Result<ExceptionIds, DomainError> {
         let exception = report
             .exception
             .as_ref()

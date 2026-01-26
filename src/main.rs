@@ -20,7 +20,7 @@ use crash_cache::shared::rate_limit::{
     AnalyticsLayer, RateLimitAnalyticsLayer, RateLimitType,
 };
 
-const MAX_BODY_SIZE: usize = 1 * 1024 * 1024;
+const MAX_BODY_SIZE: usize = 1024 * 1024; // 1 MB
 
 #[tokio::main]
 async fn main() {

@@ -445,10 +445,10 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
 fn get_cached_stats(state: &AppState) -> HealthStats {
     {
         let cache = state.health_cache.read().unwrap();
-        if let Some(updated_at) = cache.updated_at {
-            if updated_at.elapsed() < state.health_cache_ttl {
-                return cache.clone();
-            }
+        if let Some(updated_at) = cache.updated_at
+            && updated_at.elapsed() < state.health_cache_ttl
+        {
+            return cache.clone();
         }
     }
 

@@ -12,7 +12,7 @@ mod stacktrace_repository;
 
 pub use analytics_repository::AnalyticsRepository;
 pub use archive_repository::ArchiveRepository;
-pub use device_specs_repository::DeviceSpecsRepository;
+pub use device_specs_repository::{DeviceSpecsParams, DeviceSpecsRepository};
 pub use exception_message_repository::ExceptionMessageRepository;
 pub use issue_repository::IssueRepository;
 pub use unwrap_repository::*;
