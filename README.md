@@ -129,3 +129,7 @@ crash-cache accepts standard Sentry SDK payloads. Configure any Sentry SDK with 
 | Android | https://docs.sentry.io/platforms/android/ |
 
 Replace the DSN in the SDK configuration with the one from `crash-cache-cli project create`.
+
+## License
+
+AGPL-3.0 - See [LICENSE](LICENSE) for details.
