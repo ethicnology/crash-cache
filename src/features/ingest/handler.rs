@@ -41,6 +41,7 @@ pub struct HealthStats {
     archives: i64,
     reports: i64,
     queue: i64,
+    regurgitated: i64,
     orphaned: i64,
     updated_at: Option<Instant>,
 }
@@ -435,6 +436,7 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "ingested": stats.archives,
             "digested": stats.reports,
             "queued": stats.queue,
+            "regurgitated": stats.regurgitated,
             "orphaned": stats.orphaned
         }
     }))
@@ -476,10 +478,16 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
         .map(|r| r.c)
         .unwrap_or(0);
 
+    let regurgitated = sql_query("SELECT COUNT(*) as c FROM queue_error")
+        .get_result::<Count>(&mut conn)
+        .map(|r| r.c)
+        .unwrap_or(0);
+
     let orphaned = sql_query(
         "SELECT COUNT(*) as c FROM archive a
          WHERE NOT EXISTS (SELECT 1 FROM report r WHERE r.archive_hash = a.hash)
-         AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)"
+         AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)
+         AND NOT EXISTS (SELECT 1 FROM queue_error e WHERE e.archive_hash = a.hash)"
     )
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
@@ -489,6 +497,7 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
         archives,
         reports,
         queue,
+        regurgitated,
         orphaned,
         updated_at: Some(Instant::now()),
     };
