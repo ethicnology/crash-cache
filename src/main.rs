@@ -1,4 +1,5 @@
 use axum::extract::DefaultBodyLimit;
+use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -10,7 +11,7 @@ use tracing_subscriber::FmtSubscriber;
 
 use crash_cache::config::Settings;
 use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
-use crash_cache::features::ingest::{create_router, AppState, HealthStats, IngestReportUseCase};
+use crash_cache::features::ingest::{create_api_router, create_health_router, AppState, HealthStats, IngestReportUseCase};
 use crash_cache::shared::compression::GzipCompressor;
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
 use crash_cache::shared::rate_limit::{
@@ -77,24 +78,30 @@ async fn main() {
         "Rate limiting configured (0 = disabled)"
     );
 
-    // Build router with rate limiting layers
-    let mut app = create_router(app_state).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
+    // Build API router with rate limiting layers
+    let mut api_router = create_api_router(app_state.clone()).layer(DefaultBodyLimit::max(MAX_BODY_SIZE));
 
-    // Apply rate limiters (order: per-IP → per-project → global)
+    // Apply rate limiters to API routes only (order: per-IP → per-project → global)
     if let Some(layer) = create_ip_rate_limiter(settings.rate_limit_per_ip_per_sec) {
-        app = app.layer(layer);
+        api_router = api_router.layer(layer);
         info!("Per-IP rate limiter enabled");
     }
 
     if let Some(layer) = create_project_rate_limiter(settings.rate_limit_per_project_per_sec) {
-        app = app.layer(layer);
+        api_router = api_router.layer(layer);
         info!("Per-project rate limiter enabled");
     }
 
     if let Some(layer) = create_global_rate_limiter(settings.rate_limit_global_per_sec) {
-        app = app.layer(layer);
+        api_router = api_router.layer(layer);
         info!("Global rate limiter enabled");
     }
+
+    // Health router without rate limiting
+    let health_router = create_health_router(app_state);
+
+    // Merge routers
+    let app = api_router.merge(health_router);
 
     let addr = settings.server_addr();
     info!(addr = %addr, "Server listening");
@@ -102,10 +109,14 @@ async fn main() {
 
     let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_handle))
-        .await
-        .expect("Server error");
+    // Use into_make_service_with_connect_info to enable SmartIpKeyExtractor to access peer IP
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(shutdown_handle))
+    .await
+    .expect("Server error");
 
     worker_handle.await.ok();
     info!("Server shutdown complete");

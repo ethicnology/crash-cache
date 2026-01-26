@@ -50,14 +50,21 @@ pub struct AppState {
     pub health_cache_ttl: Duration,
 }
 
-pub fn create_router(state: AppState) -> Router {
+/// Creates the API router (rate-limited routes)
+pub fn create_api_router(state: AppState) -> Router {
     Router::new()
         .route("/api/{project_id}/store/", post(store_report))
         .route("/api/{project_id}/store", post(store_report))
         .route("/api/{project_id}/envelope/", post(envelope_report))
         .route("/api/{project_id}/envelope", post(envelope_report))
-        .route("/health", get(health_check))
         .layer(TraceLayer::new_for_http())
+        .with_state(state)
+}
+
+/// Creates the health router (no rate limiting)
+pub fn create_health_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health_check))
         .with_state(state)
 }
 

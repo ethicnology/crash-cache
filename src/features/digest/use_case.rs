@@ -3,6 +3,7 @@ use tracing::{error, info, warn};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, ProcessingQueueItem, SentryReport};
+use crate::shared::parser::Envelope;
 use crate::shared::persistence::{NewReport, Repositories};
 
 const MAX_RETRIES: i32 = 3;
@@ -60,8 +61,8 @@ impl DigestReportUseCase {
 
         let decompressed = self.compressor.decompress(&archive.compressed_payload)?;
 
-        let sentry_report: SentryReport = serde_json::from_slice(&decompressed)
-            .map_err(|e| DomainError::Serialization(e.to_string()))?;
+        // Try parsing as raw JSON first, then as envelope format
+        let sentry_report: SentryReport = self.parse_payload(&decompressed)?;
 
         let event_id = sentry_report
             .event_id
@@ -502,6 +503,25 @@ impl DigestReportUseCase {
         let mut hasher = Sha256::new();
         hasher.update(data);
         hex::encode(hasher.finalize())
+    }
+
+    /// Parse payload as either raw JSON or Sentry envelope format
+    fn parse_payload(&self, data: &[u8]) -> Result<SentryReport, DomainError> {
+        // Try raw JSON first (from /store endpoint)
+        if let Ok(report) = serde_json::from_slice::<SentryReport>(data) {
+            return Ok(report);
+        }
+
+        // Try envelope format (from /envelope endpoint)
+        if let Some(envelope) = Envelope::parse(data) {
+            if let Some(event_payload) = envelope.find_event_payload() {
+                return serde_json::from_slice(event_payload)
+                    .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)));
+            }
+            return Err(DomainError::Serialization("No event found in envelope".to_string()));
+        }
+
+        Err(DomainError::Serialization("Unable to parse payload as JSON or envelope".to_string()))
     }
 
     fn parse_timestamp(&self, timestamp: &Option<String>) -> i64 {
