@@ -13,7 +13,7 @@ name = "crash-cache"
 path = "src/main.rs"
 
 [[bin]]
-name = "crash-cli"
+name = "crash-cache-cli"
 path = "src/cli.rs"
 
 [dependencies]

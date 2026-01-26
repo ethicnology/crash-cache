@@ -5,16 +5,20 @@ use crate::shared::persistence::ProjectRepository;
 
 #[derive(Subcommand)]
 pub enum ProjectCommand {
+    /// Create a new project
     Create {
-        #[arg(short, long)]
+        /// Project name
         name: Option<String>,
+        /// Custom public key (auto-generated if not provided)
         #[arg(short, long)]
         key: Option<String>,
     },
+    /// Delete a project by ID
     Delete {
-        #[arg(short, long)]
+        /// Project ID to delete
         id: i32,
     },
+    /// List all projects
     List,
 }
 
