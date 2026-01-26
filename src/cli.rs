@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use crash_cache::config::Settings;
-use crash_cache::features::cli::{project, ruminate, ProjectCommand};
+use crash_cache::features::cli::{archive, project, ruminate, ArchiveCommand, ProjectCommand};
 use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, ProjectRepository};
 
 #[derive(Parser)]
@@ -14,11 +14,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage projects
     Project {
         #[command(subcommand)]
         action: ProjectCommand,
     },
-    #[command(about = "Re-digest all archives from scratch (clears all data except archives and projects)")]
+    /// Export/import archives
+    Archive {
+        #[command(subcommand)]
+        action: ArchiveCommand,
+    },
+    /// Re-digest all archives from scratch (clears all data except archives and projects)
     Ruminate {
         #[arg(short, long, help = "Skip confirmation prompt")]
         yes: bool,
@@ -39,6 +45,7 @@ fn main() {
 
     match cli.command {
         Commands::Project { action } => project::handle(action, &project_repo, &server_addr),
+        Commands::Archive { action } => archive::handle(action, &pool),
         Commands::Ruminate { yes } => ruminate::handle(&pool, yes),
     }
 }
