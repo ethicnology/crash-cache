@@ -37,25 +37,37 @@ pub struct ArchiveModel {
 }
 
 #[derive(Queryable, Selectable, Debug)]
-#[diesel(table_name = processing_queue)]
+#[diesel(table_name = queue)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ProcessingQueueModel {
+pub struct QueueModel {
     pub id: i32,
     pub archive_hash: String,
     pub created_at: NaiveDateTime,
-    pub retry_count: i32,
-    pub last_error: Option<String>,
-    pub next_retry_at: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = processing_queue)]
-pub struct NewProcessingQueueModel {
+#[diesel(table_name = queue)]
+pub struct NewQueueModel {
     pub archive_hash: String,
     pub created_at: NaiveDateTime,
-    pub retry_count: i32,
-    pub last_error: Option<String>,
-    pub next_retry_at: Option<NaiveDateTime>,
+}
+
+#[derive(Queryable, Selectable, Debug)]
+#[diesel(table_name = queue_error)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct QueueErrorModel {
+    pub id: i32,
+    pub archive_hash: String,
+    pub error: String,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = queue_error)]
+pub struct NewQueueErrorModel {
+    pub archive_hash: String,
+    pub error: String,
+    pub created_at: NaiveDateTime,
 }
 
 // ============================================
@@ -300,14 +312,10 @@ pub struct NewLookupExceptionTypeModel {
     pub value: String,
 }
 
-// ============================================
-// COMPOSITE MODEL
-// ============================================
-
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = device_specs)]
+#[diesel(table_name = lookup_device_specs)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct DeviceSpecsModel {
+pub struct LookupDeviceSpecsModel {
     pub id: i32,
     pub screen_width: Option<i32>,
     pub screen_height: Option<i32>,
@@ -319,8 +327,8 @@ pub struct DeviceSpecsModel {
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = device_specs)]
-pub struct NewDeviceSpecsModel {
+#[diesel(table_name = lookup_device_specs)]
+pub struct NewLookupDeviceSpecsModel {
     pub screen_width: Option<i32>,
     pub screen_height: Option<i32>,
     pub screen_density: Option<f32>,
@@ -330,25 +338,43 @@ pub struct NewDeviceSpecsModel {
     pub archs: Option<String>,
 }
 
-// ============================================
-// EXCEPTION / STORAGE MODELS
-// ============================================
-
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = exception_message)]
+#[diesel(table_name = lookup_exception_message)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ExceptionMessageModel {
+pub struct LookupExceptionMessageModel {
     pub id: i32,
     pub hash: String,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = exception_message)]
-pub struct NewExceptionMessageModel {
+#[diesel(table_name = lookup_exception_message)]
+pub struct NewLookupExceptionMessageModel {
     pub hash: String,
     pub value: String,
 }
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = lookup_stacktrace)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct LookupStacktraceModel {
+    pub id: i32,
+    pub hash: String,
+    pub fingerprint_hash: Option<String>,
+    pub frames_json: Vec<u8>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = lookup_stacktrace)]
+pub struct NewLookupStacktraceModel {
+    pub hash: String,
+    pub fingerprint_hash: Option<String>,
+    pub frames_json: Vec<u8>,
+}
+
+// ============================================
+// ISSUE MODEL
+// ============================================
 
 #[derive(Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = issue)]
@@ -372,24 +398,6 @@ pub struct NewIssueModel {
     pub first_seen: NaiveDateTime,
     pub last_seen: NaiveDateTime,
     pub event_count: i32,
-}
-
-#[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = stacktrace)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct StacktraceModel {
-    pub id: i32,
-    pub hash: String,
-    pub fingerprint_hash: Option<String>,
-    pub frames_json: Vec<u8>,
-}
-
-#[derive(Insertable, Debug)]
-#[diesel(table_name = stacktrace)]
-pub struct NewStacktraceModel {
-    pub hash: String,
-    pub fingerprint_hash: Option<String>,
-    pub frames_json: Vec<u8>,
 }
 
 // ============================================

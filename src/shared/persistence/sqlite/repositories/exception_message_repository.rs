@@ -2,8 +2,8 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::sqlite::SqliteConnection;
 
-use crate::shared::persistence::sqlite::models::{ExceptionMessageModel, NewExceptionMessageModel};
-use crate::shared::persistence::sqlite::schema::exception_message;
+use crate::shared::persistence::sqlite::models::{LookupExceptionMessageModel, NewLookupExceptionMessageModel};
+use crate::shared::persistence::sqlite::schema::lookup_exception_message;
 
 type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -20,39 +20,39 @@ impl ExceptionMessageRepository {
     pub fn get_or_create(&self, hash: &str, value: &str) -> Result<i32, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
-        if let Some(existing) = exception_message::table
-            .filter(exception_message::hash.eq(hash))
-            .select(ExceptionMessageModel::as_select())
-            .first::<ExceptionMessageModel>(&mut conn)
+        if let Some(existing) = lookup_exception_message::table
+            .filter(lookup_exception_message::hash.eq(hash))
+            .select(LookupExceptionMessageModel::as_select())
+            .first::<LookupExceptionMessageModel>(&mut conn)
             .optional()?
         {
             return Ok(existing.id);
         }
 
-        let new_record = NewExceptionMessageModel {
+        let new_record = NewLookupExceptionMessageModel {
             hash: hash.to_string(),
             value: value.to_string(),
         };
 
-        diesel::insert_into(exception_message::table)
+        diesel::insert_into(lookup_exception_message::table)
             .values(&new_record)
             .execute(&mut conn)?;
 
-        let inserted = exception_message::table
-            .filter(exception_message::hash.eq(hash))
-            .select(ExceptionMessageModel::as_select())
-            .first::<ExceptionMessageModel>(&mut conn)?;
+        let inserted = lookup_exception_message::table
+            .filter(lookup_exception_message::hash.eq(hash))
+            .select(LookupExceptionMessageModel::as_select())
+            .first::<LookupExceptionMessageModel>(&mut conn)?;
 
         Ok(inserted.id)
     }
 
-    pub fn find_by_hash(&self, hash: &str) -> Result<Option<ExceptionMessageModel>, diesel::result::Error> {
+    pub fn find_by_hash(&self, hash: &str) -> Result<Option<LookupExceptionMessageModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
-        exception_message::table
-            .filter(exception_message::hash.eq(hash))
-            .select(ExceptionMessageModel::as_select())
-            .first::<ExceptionMessageModel>(&mut conn)
+        lookup_exception_message::table
+            .filter(lookup_exception_message::hash.eq(hash))
+            .select(LookupExceptionMessageModel::as_select())
+            .first::<LookupExceptionMessageModel>(&mut conn)
             .optional()
     }
 }

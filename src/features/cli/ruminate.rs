@@ -7,10 +7,10 @@ use crate::shared::persistence::SqlitePool;
 
 const TABLES_TO_CLEAR: &[&str] = &[
     "report",
-    "stacktrace",
+    "lookup_stacktrace",
     "issue",
-    "exception_message",
-    "device_specs",
+    "lookup_exception_message",
+    "lookup_device_specs",
     "lookup_platform",
     "lookup_environment",
     "lookup_connection_type",
@@ -28,7 +28,8 @@ const TABLES_TO_CLEAR: &[&str] = &[
     "lookup_app_build",
     "lookup_user",
     "lookup_exception_type",
-    "processing_queue",
+    "queue",
+    "queue_error",
 ];
 
 pub fn handle(pool: &SqlitePool, yes: bool) {
@@ -83,8 +84,8 @@ pub fn handle(pool: &SqlitePool, yes: bool) {
     println!("\n⏳ Re-queuing archives...");
 
     let result = sql_query(
-        "INSERT INTO processing_queue (archive_hash, created_at, retry_count)
-         SELECT hash, datetime('now'), 0 FROM archive",
+        "INSERT INTO queue (archive_hash, created_at)
+         SELECT hash, datetime('now') FROM archive",
     )
     .execute(&mut conn);
 

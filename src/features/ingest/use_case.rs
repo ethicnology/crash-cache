@@ -1,4 +1,4 @@
-use crate::shared::domain::{Archive, DomainError, ProcessingQueueItem};
+use crate::shared::domain::{Archive, DomainError, QueueItem};
 use crate::shared::persistence::{ArchiveRepository, ProjectRepository, QueueRepository};
 
 #[derive(Clone)]
@@ -38,7 +38,7 @@ impl IngestReportUseCase {
             let archive = Archive::new(hash.clone(), project_id, compressed_payload, original_size);
             self.archive_repo.save(&archive)?;
 
-            let queue_item = ProcessingQueueItem::new(hash.clone());
+            let queue_item = QueueItem::new(hash.clone());
             self.queue_repo.enqueue(&queue_item)?;
         }
 

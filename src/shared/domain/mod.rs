@@ -1,12 +1,12 @@
 mod archive;
 mod error;
-mod processing_queue_item;
+mod queue;
 mod project;
 mod sentry_report;
 
 pub use archive::Archive;
 pub use error::DomainError;
-pub use processing_queue_item::ProcessingQueueItem;
+pub use queue::{QueueItem, QueueError};
 pub use project::Project;
 pub use sentry_report::{
     SentryAppContext, SentryContext, SentryContexts, SentryCultureContext, SentryDeviceContext,

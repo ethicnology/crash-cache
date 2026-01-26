@@ -2,8 +2,8 @@ use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::sqlite::SqliteConnection;
 
-use crate::shared::persistence::sqlite::models::{NewStacktraceModel, StacktraceModel};
-use crate::shared::persistence::sqlite::schema::stacktrace;
+use crate::shared::persistence::sqlite::models::{NewLookupStacktraceModel, LookupStacktraceModel};
+use crate::shared::persistence::sqlite::schema::lookup_stacktrace;
 
 type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -25,49 +25,49 @@ impl StacktraceRepository {
     ) -> Result<i32, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
-        if let Some(existing) = stacktrace::table
-            .filter(stacktrace::hash.eq(hash))
-            .select(StacktraceModel::as_select())
-            .first::<StacktraceModel>(&mut conn)
+        if let Some(existing) = lookup_stacktrace::table
+            .filter(lookup_stacktrace::hash.eq(hash))
+            .select(LookupStacktraceModel::as_select())
+            .first::<LookupStacktraceModel>(&mut conn)
             .optional()?
         {
             return Ok(existing.id);
         }
 
-        let new_record = NewStacktraceModel {
+        let new_record = NewLookupStacktraceModel {
             hash: hash.to_string(),
             fingerprint_hash,
             frames_json: frames_json.to_vec(),
         };
 
-        diesel::insert_into(stacktrace::table)
+        diesel::insert_into(lookup_stacktrace::table)
             .values(&new_record)
             .execute(&mut conn)?;
 
-        let inserted = stacktrace::table
-            .filter(stacktrace::hash.eq(hash))
-            .select(StacktraceModel::as_select())
-            .first::<StacktraceModel>(&mut conn)?;
+        let inserted = lookup_stacktrace::table
+            .filter(lookup_stacktrace::hash.eq(hash))
+            .select(LookupStacktraceModel::as_select())
+            .first::<LookupStacktraceModel>(&mut conn)?;
 
         Ok(inserted.id)
     }
 
-    pub fn find_by_hash(&self, hash: &str) -> Result<Option<StacktraceModel>, diesel::result::Error> {
+    pub fn find_by_hash(&self, hash: &str) -> Result<Option<LookupStacktraceModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
-        stacktrace::table
-            .filter(stacktrace::hash.eq(hash))
-            .select(StacktraceModel::as_select())
-            .first::<StacktraceModel>(&mut conn)
+        lookup_stacktrace::table
+            .filter(lookup_stacktrace::hash.eq(hash))
+            .select(LookupStacktraceModel::as_select())
+            .first::<LookupStacktraceModel>(&mut conn)
             .optional()
     }
 
-    pub fn find_by_fingerprint(&self, fingerprint_hash: &str) -> Result<Vec<StacktraceModel>, diesel::result::Error> {
+    pub fn find_by_fingerprint(&self, fingerprint_hash: &str) -> Result<Vec<LookupStacktraceModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
-        stacktrace::table
-            .filter(stacktrace::fingerprint_hash.eq(fingerprint_hash))
-            .select(StacktraceModel::as_select())
-            .load::<StacktraceModel>(&mut conn)
+        lookup_stacktrace::table
+            .filter(lookup_stacktrace::fingerprint_hash.eq(fingerprint_hash))
+            .select(LookupStacktraceModel::as_select())
+            .load::<LookupStacktraceModel>(&mut conn)
     }
 }

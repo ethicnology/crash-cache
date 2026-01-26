@@ -14,7 +14,7 @@ pub use exception_message_repository::ExceptionMessageRepository;
 pub use issue_repository::IssueRepository;
 pub use lookup_repository::*;
 pub use project_repository::ProjectRepository;
-pub use queue_repository::QueueRepository;
+pub use queue_repository::{QueueRepository, QueueErrorRepository};
 pub use report_repository::{NewReport, ReportRepository};
 pub use stacktrace_repository::StacktraceRepository;
 
@@ -24,6 +24,7 @@ use super::SqlitePool;
 pub struct Repositories {
     pub archive: ArchiveRepository,
     pub queue: QueueRepository,
+    pub queue_error: QueueErrorRepository,
     pub project: ProjectRepository,
     pub report: ReportRepository,
     pub platform: LookupPlatformRepository,
@@ -54,6 +55,7 @@ impl Repositories {
         Self {
             archive: ArchiveRepository::new(pool.clone()),
             queue: QueueRepository::new(pool.clone()),
+            queue_error: QueueErrorRepository::new(pool.clone()),
             project: ProjectRepository::new(pool.clone()),
             report: ReportRepository::new(pool.clone()),
             platform: LookupPlatformRepository::new(pool.clone()),

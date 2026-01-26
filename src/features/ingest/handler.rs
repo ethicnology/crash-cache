@@ -380,7 +380,7 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
         .map(|r| r.c)
         .unwrap_or(0);
 
-    let queue = sql_query("SELECT COUNT(*) as c FROM processing_queue")
+    let queue = sql_query("SELECT COUNT(*) as c FROM queue")
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
         .unwrap_or(0);
@@ -388,7 +388,7 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
     let orphaned = sql_query(
         "SELECT COUNT(*) as c FROM archive a
          WHERE NOT EXISTS (SELECT 1 FROM report r WHERE r.archive_hash = a.hash)
-         AND NOT EXISTS (SELECT 1 FROM processing_queue q WHERE q.archive_hash = a.hash)"
+         AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)"
     )
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)

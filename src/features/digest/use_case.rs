@@ -1,13 +1,10 @@
 use sha2::{Digest, Sha256};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::shared::compression::GzipCompressor;
-use crate::shared::domain::{DomainError, ProcessingQueueItem, SentryReport};
+use crate::shared::domain::{DomainError, QueueItem, SentryReport};
 use crate::shared::parser::Envelope;
 use crate::shared::persistence::{NewReport, Repositories};
-
-const MAX_RETRIES: i32 = 3;
-const BACKOFF_BASE_SECONDS: i64 = 30;
 
 #[derive(Clone)]
 pub struct DigestReportUseCase {
@@ -42,7 +39,7 @@ impl DigestReportUseCase {
                     self.repos.queue.remove(&item.archive_hash)?;
                 }
                 Err(e) => {
-                    self.handle_failure(item, e)?;
+                    self.handle_failure(&item, e)?;
                 }
             }
         }
@@ -50,7 +47,7 @@ impl DigestReportUseCase {
         Ok(processed_count)
     }
 
-    fn process_single_item(&self, item: &ProcessingQueueItem) -> Result<(), DomainError> {
+    fn process_single_item(&self, item: &QueueItem) -> Result<(), DomainError> {
         let archive = self
             .repos
             .archive
@@ -537,28 +534,20 @@ impl DigestReportUseCase {
 
     fn handle_failure(
         &self,
-        mut item: ProcessingQueueItem,
-        error: DomainError,
+        item: &QueueItem,
+        err: DomainError,
     ) -> Result<(), DomainError> {
         error!(
             archive_hash = %item.archive_hash,
-            error = %error,
-            retry_count = item.retry_count,
-            "Failed to process report"
+            error = %err,
+            "Failed to process report, moving to error queue"
         );
 
-        if item.retry_count >= MAX_RETRIES {
-            warn!(
-                archive_hash = %item.archive_hash,
-                "Max retries exceeded, removing from queue"
-            );
-            self.repos.queue.remove(&item.archive_hash)?;
-            return Err(DomainError::MaxRetriesExceeded(item.archive_hash.clone()));
-        }
+        // Record the error
+        self.repos.queue_error.record_error(&item.archive_hash, &err.to_string())?;
 
-        let backoff = BACKOFF_BASE_SECONDS * (1 << item.retry_count);
-        item.increment_retry(error.to_string(), backoff);
-        self.repos.queue.update_retry(&item)?;
+        // Remove from processing queue
+        self.repos.queue.remove(&item.archive_hash)?;
 
         Ok(())
     }

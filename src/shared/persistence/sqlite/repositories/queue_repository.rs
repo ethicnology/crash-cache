@@ -1,9 +1,9 @@
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
-use crate::shared::domain::{DomainError, ProcessingQueueItem};
-use crate::shared::persistence::sqlite::models::{NewProcessingQueueModel, ProcessingQueueModel};
-use crate::shared::persistence::sqlite::schema::processing_queue;
+use crate::shared::domain::{DomainError, QueueItem, QueueError};
+use crate::shared::persistence::sqlite::models::{NewQueueModel, QueueModel, NewQueueErrorModel, QueueErrorModel};
+use crate::shared::persistence::sqlite::schema::{queue, queue_error};
 use crate::shared::persistence::SqlitePool;
 
 #[derive(Clone)]
@@ -16,29 +16,26 @@ impl QueueRepository {
         Self { pool }
     }
 
-    pub fn enqueue(&self, item: &ProcessingQueueItem) -> Result<i32, DomainError> {
+    pub fn enqueue(&self, item: &QueueItem) -> Result<i32, DomainError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let model = NewProcessingQueueModel {
+        let model = NewQueueModel {
             archive_hash: item.archive_hash.clone(),
             created_at: item.created_at.naive_utc(),
-            retry_count: item.retry_count,
-            last_error: item.last_error.clone(),
-            next_retry_at: item.next_retry_at.map(|dt| dt.naive_utc()),
         };
 
-        let rows = diesel::insert_or_ignore_into(processing_queue::table)
+        let rows = diesel::insert_or_ignore_into(queue::table)
             .values(&model)
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         if rows == 0 {
-            let existing = processing_queue::table
-                .filter(processing_queue::archive_hash.eq(&item.archive_hash))
-                .select(processing_queue::id)
+            let existing = queue::table
+                .filter(queue::archive_hash.eq(&item.archive_hash))
+                .select(queue::id)
                 .first::<i32>(&mut conn)
                 .map_err(|e| DomainError::Database(e.to_string()))?;
             return Ok(existing);
@@ -53,34 +50,24 @@ impl QueueRepository {
         Ok(id)
     }
 
-    pub fn dequeue_batch(&self, limit: i32) -> Result<Vec<ProcessingQueueItem>, DomainError> {
+    pub fn dequeue_batch(&self, limit: i32) -> Result<Vec<QueueItem>, DomainError> {
         let mut conn = self
             .pool
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let now = Utc::now().naive_utc();
-
-        let results = processing_queue::table
-            .filter(
-                processing_queue::next_retry_at
-                    .is_null()
-                    .or(processing_queue::next_retry_at.le(now)),
-            )
-            .order(processing_queue::created_at.asc())
+        let results = queue::table
+            .order(queue::created_at.asc())
             .limit(limit as i64)
-            .load::<ProcessingQueueModel>(&mut conn)
+            .load::<QueueModel>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(results
             .into_iter()
-            .map(|m| ProcessingQueueItem {
+            .map(|m| QueueItem {
                 id: Some(m.id),
                 archive_hash: m.archive_hash,
                 created_at: Utc.from_utc_datetime(&m.created_at),
-                retry_count: m.retry_count,
-                last_error: m.last_error,
-                next_retry_at: m.next_retry_at.map(|dt| Utc.from_utc_datetime(&dt)),
             })
             .collect())
     }
@@ -91,25 +78,7 @@ impl QueueRepository {
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        diesel::delete(processing_queue::table.filter(processing_queue::archive_hash.eq(archive_hash)))
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(())
-    }
-
-    pub fn update_retry(&self, item: &ProcessingQueueItem) -> Result<(), DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        diesel::update(processing_queue::table.filter(processing_queue::archive_hash.eq(&item.archive_hash)))
-            .set((
-                processing_queue::retry_count.eq(item.retry_count),
-                processing_queue::last_error.eq(&item.last_error),
-                processing_queue::next_retry_at.eq(item.next_retry_at.map(|dt| dt.naive_utc())),
-            ))
+        diesel::delete(queue::table.filter(queue::archive_hash.eq(archive_hash)))
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
@@ -122,7 +91,112 @@ impl QueueRepository {
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let count = processing_queue::table
+        let count = queue::table
+            .count()
+            .get_result(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        Ok(count)
+    }
+}
+
+#[derive(Clone)]
+pub struct QueueErrorRepository {
+    pool: SqlitePool,
+}
+
+impl QueueErrorRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub fn record_error(&self, archive_hash: &str, error: &str) -> Result<i32, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        let model = NewQueueErrorModel {
+            archive_hash: archive_hash.to_string(),
+            error: error.to_string(),
+            created_at: Utc::now().naive_utc(),
+        };
+
+        // Use insert_or_ignore to handle duplicates gracefully
+        let rows = diesel::insert_or_ignore_into(queue_error::table)
+            .values(&model)
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        if rows == 0 {
+            // Update existing error
+            diesel::update(queue_error::table.filter(queue_error::archive_hash.eq(archive_hash)))
+                .set((
+                    queue_error::error.eq(error),
+                    queue_error::created_at.eq(Utc::now().naive_utc()),
+                ))
+                .execute(&mut conn)
+                .map_err(|e| DomainError::Database(e.to_string()))?;
+
+            let existing = queue_error::table
+                .filter(queue_error::archive_hash.eq(archive_hash))
+                .select(queue_error::id)
+                .first::<i32>(&mut conn)
+                .map_err(|e| DomainError::Database(e.to_string()))?;
+            return Ok(existing);
+        }
+
+        let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+            "last_insert_rowid()",
+        ))
+        .get_result::<i32>(&mut conn)
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        Ok(id)
+    }
+
+    pub fn find_all(&self) -> Result<Vec<QueueError>, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        let results = queue_error::table
+            .order(queue_error::created_at.desc())
+            .load::<QueueErrorModel>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        Ok(results
+            .into_iter()
+            .map(|m| QueueError {
+                id: m.id,
+                archive_hash: m.archive_hash,
+                error: m.error,
+                created_at: Utc.from_utc_datetime(&m.created_at),
+            })
+            .collect())
+    }
+
+    pub fn remove(&self, archive_hash: &str) -> Result<(), DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        diesel::delete(queue_error::table.filter(queue_error::archive_hash.eq(archive_hash)))
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub fn count(&self) -> Result<i64, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        let count = queue_error::table
             .count()
             .get_result(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;

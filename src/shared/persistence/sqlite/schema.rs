@@ -22,13 +22,19 @@ diesel::table! {
 }
 
 diesel::table! {
-    processing_queue (id) {
+    queue (id) {
         id -> Integer,
         archive_hash -> Text,
         created_at -> Timestamp,
-        retry_count -> Integer,
-        last_error -> Nullable<Text>,
-        next_retry_at -> Nullable<Timestamp>,
+    }
+}
+
+diesel::table! {
+    queue_error (id) {
+        id -> Integer,
+        archive_hash -> Text,
+        error -> Text,
+        created_at -> Timestamp,
     }
 }
 
@@ -155,12 +161,8 @@ diesel::table! {
     }
 }
 
-// ============================================
-// COMPOSITE TABLE
-// ============================================
-
 diesel::table! {
-    device_specs (id) {
+    lookup_device_specs (id) {
         id -> Integer,
         screen_width -> Nullable<Integer>,
         screen_height -> Nullable<Integer>,
@@ -172,17 +174,26 @@ diesel::table! {
     }
 }
 
-// ============================================
-// EXCEPTION / STORAGE TABLES
-// ============================================
-
 diesel::table! {
-    exception_message (id) {
+    lookup_exception_message (id) {
         id -> Integer,
         hash -> Text,
         value -> Text,
     }
 }
+
+diesel::table! {
+    lookup_stacktrace (id) {
+        id -> Integer,
+        hash -> Text,
+        fingerprint_hash -> Nullable<Text>,
+        frames_json -> Binary,
+    }
+}
+
+// ============================================
+// ISSUE TABLE
+// ============================================
 
 diesel::table! {
     issue (id) {
@@ -193,15 +204,6 @@ diesel::table! {
         first_seen -> Timestamp,
         last_seen -> Timestamp,
         event_count -> Integer,
-    }
-}
-
-diesel::table! {
-    stacktrace (id) {
-        id -> Integer,
-        hash -> Text,
-        fingerprint_hash -> Nullable<Text>,
-        frames_json -> Binary,
     }
 }
 
@@ -252,7 +254,8 @@ diesel::table! {
 // JOINABLE RELATIONS
 // ============================================
 
-diesel::joinable!(processing_queue -> archive (archive_hash));
+diesel::joinable!(queue -> archive (archive_hash));
+diesel::joinable!(queue_error -> archive (archive_hash));
 diesel::joinable!(report -> archive (archive_hash));
 diesel::joinable!(report -> project (project_id));
 diesel::joinable!(report -> lookup_platform (platform_id));
@@ -263,7 +266,7 @@ diesel::joinable!(report -> lookup_manufacturer (manufacturer_id));
 diesel::joinable!(report -> lookup_brand (brand_id));
 diesel::joinable!(report -> lookup_model (model_id));
 diesel::joinable!(report -> lookup_chipset (chipset_id));
-diesel::joinable!(report -> device_specs (device_specs_id));
+diesel::joinable!(report -> lookup_device_specs (device_specs_id));
 diesel::joinable!(report -> lookup_locale_code (locale_code_id));
 diesel::joinable!(report -> lookup_timezone (timezone_id));
 diesel::joinable!(report -> lookup_connection_type (connection_type_id));
@@ -273,15 +276,16 @@ diesel::joinable!(report -> lookup_app_version (app_version_id));
 diesel::joinable!(report -> lookup_app_build (app_build_id));
 diesel::joinable!(report -> lookup_user (user_id));
 diesel::joinable!(report -> lookup_exception_type (exception_type_id));
-diesel::joinable!(report -> exception_message (exception_message_id));
-diesel::joinable!(report -> stacktrace (stacktrace_id));
+diesel::joinable!(report -> lookup_exception_message (exception_message_id));
+diesel::joinable!(report -> lookup_stacktrace (stacktrace_id));
 diesel::joinable!(report -> issue (issue_id));
 diesel::joinable!(issue -> lookup_exception_type (exception_type_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     project,
     archive,
-    processing_queue,
+    queue,
+    queue_error,
     lookup_platform,
     lookup_environment,
     lookup_connection_type,
@@ -299,9 +303,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     lookup_app_build,
     lookup_user,
     lookup_exception_type,
-    device_specs,
-    exception_message,
+    lookup_device_specs,
+    lookup_exception_message,
+    lookup_stacktrace,
     issue,
-    stacktrace,
     report,
 );

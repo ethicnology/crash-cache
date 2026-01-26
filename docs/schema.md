@@ -23,13 +23,17 @@ erDiagram
         TIMESTAMP created_at
     }
     
-    processing_queue {
+    queue {
         INTEGER id PK
         TEXT archive_hash FK,UK
         TIMESTAMP created_at
-        INTEGER retry_count
-        TEXT last_error
-        TIMESTAMP next_retry_at
+    }
+    
+    queue_error {
+        INTEGER id PK
+        TEXT archive_hash FK,UK
+        TEXT error
+        TIMESTAMP created_at
     }
     
     %% ============================================
@@ -121,11 +125,7 @@ erDiagram
         TEXT value UK
     }
     
-    %% ============================================
-    %% COMPOSITE & STORAGE TABLES
-    %% ============================================
-    
-    device_specs {
+    lookup_device_specs {
         INTEGER id PK
         INTEGER screen_width
         INTEGER screen_height
@@ -136,11 +136,22 @@ erDiagram
         TEXT archs
     }
     
-    exception_message {
+    lookup_exception_message {
         INTEGER id PK
         TEXT hash UK
         TEXT value
     }
+    
+    lookup_stacktrace {
+        INTEGER id PK
+        TEXT hash UK
+        TEXT fingerprint_hash FK
+        BLOB frames_json
+    }
+    
+    %% ============================================
+    %% ISSUE TABLE
+    %% ============================================
     
     issue {
         INTEGER id PK
@@ -150,13 +161,6 @@ erDiagram
         TIMESTAMP first_seen
         TIMESTAMP last_seen
         INTEGER event_count
-    }
-    
-    stacktrace {
-        INTEGER id PK
-        TEXT hash UK
-        TEXT fingerprint_hash FK
-        BLOB frames_json
     }
     
     %% ============================================
@@ -197,7 +201,8 @@ erDiagram
     %% RELATIONSHIPS
     %% ============================================
     
-    archive ||--o{ processing_queue : "queued for"
+    archive ||--o{ queue : "queued for"
+    archive ||--o{ queue_error : "failed"
     archive ||--o{ report : "stored in"
     
     project ||--o{ archive : "receives"
@@ -222,21 +227,19 @@ erDiagram
     lookup_exception_type ||--o{ report : "exception_type"
     lookup_exception_type ||--o{ issue : "exception_type"
     
-    device_specs ||--o{ report : "device_specs"
-    exception_message ||--o{ report : "exception_msg"
-    stacktrace ||--o{ report : "stacktrace"
+    lookup_device_specs ||--o{ report : "device_specs"
+    lookup_exception_message ||--o{ report : "exception_msg"
+    lookup_stacktrace ||--o{ report : "stacktrace"
     issue ||--o{ report : "issue"
-    issue ||--o{ stacktrace : "fingerprint"
 ```
 
 ## Table Summary
 
 | Category | Tables | Purpose |
 |----------|--------|---------|
-| **Core** | `project`, `archive`, `processing_queue` | Project config, raw storage, async processing |
-| **Lookup** | 17 `lookup_*` tables | Deduplicated string values (normalized) |
-| **Composite** | `device_specs` | Hardware specs (screen, CPU, RAM, archs) |
-| **Exception** | `exception_message`, `issue`, `stacktrace` | Error grouping and deduplication |
+| **Core** | `project`, `archive`, `queue`, `queue_error` | Project config, raw storage, async processing |
+| **Lookup** | 20 `lookup_*` tables | Deduplicated string values (normalized) |
+| **Issue** | `issue` | Error grouping by fingerprint |
 | **Main** | `report` | Central table with 22 FK references |
 
 ## Data Flow
@@ -246,15 +249,16 @@ flowchart LR
     subgraph Ingestion
         A[Sentry SDK] -->|envelope| B[/api/project_id/envelope/]
         B --> C[archive]
-        C --> D[processing_queue]
+        C --> D[queue]
     end
     
     subgraph Processing
-        D -->|worker| E[ProcessReportUseCase]
+        D -->|worker| E[DigestReportUseCase]
         E -->|decompress| C
         E -->|parse & normalize| F[lookup_* tables]
-        E -->|extract| G[issue + stacktrace]
+        E -->|extract| G[issue]
         E -->|create| H[report]
+        E -->|on error| I[queue_error]
     end
     
     subgraph Storage
@@ -273,5 +277,4 @@ flowchart LR
 | `idx_report_timestamp` | report | timestamp | Time-based queries |
 | `idx_report_issue` | report | issue_id | Group by issue |
 | `idx_report_user` | report | user_id | Filter by user |
-| `idx_processing_queue_next_retry` | processing_queue | next_retry_at | Retry scheduling |
-| `idx_stacktrace_fingerprint` | stacktrace | fingerprint_hash | Find stacktraces by fingerprint |
+| `idx_lookup_stacktrace_fingerprint` | lookup_stacktrace | fingerprint_hash | Find stacktraces by fingerprint |
