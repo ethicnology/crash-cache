@@ -39,130 +39,130 @@ diesel::table! {
 }
 
 // ============================================
-// LOOKUP TABLES
+// UNWRAP TABLES
 // ============================================
 
 diesel::table! {
-    lookup_platform (id) {
+    unwrap_platform (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_environment (id) {
+    unwrap_environment (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_connection_type (id) {
+    unwrap_connection_type (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_orientation (id) {
+    unwrap_orientation (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_os_name (id) {
+    unwrap_os_name (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_os_version (id) {
+    unwrap_os_version (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_manufacturer (id) {
+    unwrap_manufacturer (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_brand (id) {
+    unwrap_brand (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_model (id) {
+    unwrap_model (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_chipset (id) {
+    unwrap_chipset (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_locale_code (id) {
+    unwrap_locale_code (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_timezone (id) {
+    unwrap_timezone (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_app_name (id) {
+    unwrap_app_name (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_app_version (id) {
+    unwrap_app_version (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_app_build (id) {
+    unwrap_app_build (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_user (id) {
+    unwrap_user (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_exception_type (id) {
+    unwrap_exception_type (id) {
         id -> Integer,
         value -> Text,
     }
 }
 
 diesel::table! {
-    lookup_device_specs (id) {
+    unwrap_device_specs (id) {
         id -> Integer,
         screen_width -> Nullable<Integer>,
         screen_height -> Nullable<Integer>,
@@ -175,7 +175,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    lookup_exception_message (id) {
+    unwrap_exception_message (id) {
         id -> Integer,
         hash -> Text,
         value -> Text,
@@ -183,7 +183,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    lookup_stacktrace (id) {
+    unwrap_stacktrace (id) {
         id -> Integer,
         hash -> Text,
         fingerprint_hash -> Nullable<Text>,
@@ -258,54 +258,54 @@ diesel::joinable!(queue -> archive (archive_hash));
 diesel::joinable!(queue_error -> archive (archive_hash));
 diesel::joinable!(report -> archive (archive_hash));
 diesel::joinable!(report -> project (project_id));
-diesel::joinable!(report -> lookup_platform (platform_id));
-diesel::joinable!(report -> lookup_environment (environment_id));
-diesel::joinable!(report -> lookup_os_name (os_name_id));
-diesel::joinable!(report -> lookup_os_version (os_version_id));
-diesel::joinable!(report -> lookup_manufacturer (manufacturer_id));
-diesel::joinable!(report -> lookup_brand (brand_id));
-diesel::joinable!(report -> lookup_model (model_id));
-diesel::joinable!(report -> lookup_chipset (chipset_id));
-diesel::joinable!(report -> lookup_device_specs (device_specs_id));
-diesel::joinable!(report -> lookup_locale_code (locale_code_id));
-diesel::joinable!(report -> lookup_timezone (timezone_id));
-diesel::joinable!(report -> lookup_connection_type (connection_type_id));
-diesel::joinable!(report -> lookup_orientation (orientation_id));
-diesel::joinable!(report -> lookup_app_name (app_name_id));
-diesel::joinable!(report -> lookup_app_version (app_version_id));
-diesel::joinable!(report -> lookup_app_build (app_build_id));
-diesel::joinable!(report -> lookup_user (user_id));
-diesel::joinable!(report -> lookup_exception_type (exception_type_id));
-diesel::joinable!(report -> lookup_exception_message (exception_message_id));
-diesel::joinable!(report -> lookup_stacktrace (stacktrace_id));
+diesel::joinable!(report -> unwrap_platform (platform_id));
+diesel::joinable!(report -> unwrap_environment (environment_id));
+diesel::joinable!(report -> unwrap_os_name (os_name_id));
+diesel::joinable!(report -> unwrap_os_version (os_version_id));
+diesel::joinable!(report -> unwrap_manufacturer (manufacturer_id));
+diesel::joinable!(report -> unwrap_brand (brand_id));
+diesel::joinable!(report -> unwrap_model (model_id));
+diesel::joinable!(report -> unwrap_chipset (chipset_id));
+diesel::joinable!(report -> unwrap_device_specs (device_specs_id));
+diesel::joinable!(report -> unwrap_locale_code (locale_code_id));
+diesel::joinable!(report -> unwrap_timezone (timezone_id));
+diesel::joinable!(report -> unwrap_connection_type (connection_type_id));
+diesel::joinable!(report -> unwrap_orientation (orientation_id));
+diesel::joinable!(report -> unwrap_app_name (app_name_id));
+diesel::joinable!(report -> unwrap_app_version (app_version_id));
+diesel::joinable!(report -> unwrap_app_build (app_build_id));
+diesel::joinable!(report -> unwrap_user (user_id));
+diesel::joinable!(report -> unwrap_exception_type (exception_type_id));
+diesel::joinable!(report -> unwrap_exception_message (exception_message_id));
+diesel::joinable!(report -> unwrap_stacktrace (stacktrace_id));
 diesel::joinable!(report -> issue (issue_id));
-diesel::joinable!(issue -> lookup_exception_type (exception_type_id));
+diesel::joinable!(issue -> unwrap_exception_type (exception_type_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     project,
     archive,
     queue,
     queue_error,
-    lookup_platform,
-    lookup_environment,
-    lookup_connection_type,
-    lookup_orientation,
-    lookup_os_name,
-    lookup_os_version,
-    lookup_manufacturer,
-    lookup_brand,
-    lookup_model,
-    lookup_chipset,
-    lookup_locale_code,
-    lookup_timezone,
-    lookup_app_name,
-    lookup_app_version,
-    lookup_app_build,
-    lookup_user,
-    lookup_exception_type,
-    lookup_device_specs,
-    lookup_exception_message,
-    lookup_stacktrace,
+    unwrap_platform,
+    unwrap_environment,
+    unwrap_connection_type,
+    unwrap_orientation,
+    unwrap_os_name,
+    unwrap_os_version,
+    unwrap_manufacturer,
+    unwrap_brand,
+    unwrap_model,
+    unwrap_chipset,
+    unwrap_locale_code,
+    unwrap_timezone,
+    unwrap_app_name,
+    unwrap_app_version,
+    unwrap_app_build,
+    unwrap_user,
+    unwrap_exception_type,
+    unwrap_device_specs,
+    unwrap_exception_message,
+    unwrap_stacktrace,
     issue,
     report,
 );

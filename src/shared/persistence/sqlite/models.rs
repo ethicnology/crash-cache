@@ -71,251 +71,251 @@ pub struct NewQueueErrorModel {
 }
 
 // ============================================
-// LOOKUP MODELS (generic pattern)
+// UNWRAP MODELS (generic pattern)
 // ============================================
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_platform)]
+#[diesel(table_name = unwrap_platform)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupPlatformModel {
+pub struct UnwrapPlatformModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_platform)]
-pub struct NewLookupPlatformModel {
+#[diesel(table_name = unwrap_platform)]
+pub struct NewUnwrapPlatformModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_environment)]
+#[diesel(table_name = unwrap_environment)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupEnvironmentModel {
+pub struct UnwrapEnvironmentModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_environment)]
-pub struct NewLookupEnvironmentModel {
+#[diesel(table_name = unwrap_environment)]
+pub struct NewUnwrapEnvironmentModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_connection_type)]
+#[diesel(table_name = unwrap_connection_type)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupConnectionTypeModel {
+pub struct UnwrapConnectionTypeModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_connection_type)]
-pub struct NewLookupConnectionTypeModel {
+#[diesel(table_name = unwrap_connection_type)]
+pub struct NewUnwrapConnectionTypeModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_orientation)]
+#[diesel(table_name = unwrap_orientation)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupOrientationModel {
+pub struct UnwrapOrientationModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_orientation)]
-pub struct NewLookupOrientationModel {
+#[diesel(table_name = unwrap_orientation)]
+pub struct NewUnwrapOrientationModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_os_name)]
+#[diesel(table_name = unwrap_os_name)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupOsNameModel {
+pub struct UnwrapOsNameModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_os_name)]
-pub struct NewLookupOsNameModel {
+#[diesel(table_name = unwrap_os_name)]
+pub struct NewUnwrapOsNameModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_os_version)]
+#[diesel(table_name = unwrap_os_version)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupOsVersionModel {
+pub struct UnwrapOsVersionModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_os_version)]
-pub struct NewLookupOsVersionModel {
+#[diesel(table_name = unwrap_os_version)]
+pub struct NewUnwrapOsVersionModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_manufacturer)]
+#[diesel(table_name = unwrap_manufacturer)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupManufacturerModel {
+pub struct UnwrapManufacturerModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_manufacturer)]
-pub struct NewLookupManufacturerModel {
+#[diesel(table_name = unwrap_manufacturer)]
+pub struct NewUnwrapManufacturerModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_brand)]
+#[diesel(table_name = unwrap_brand)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupBrandModel {
+pub struct UnwrapBrandModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_brand)]
-pub struct NewLookupBrandModel {
+#[diesel(table_name = unwrap_brand)]
+pub struct NewUnwrapBrandModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_model)]
+#[diesel(table_name = unwrap_model)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupModelModel {
+pub struct UnwrapModelModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_model)]
-pub struct NewLookupModelModel {
+#[diesel(table_name = unwrap_model)]
+pub struct NewUnwrapModelModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_chipset)]
+#[diesel(table_name = unwrap_chipset)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupChipsetModel {
+pub struct UnwrapChipsetModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_chipset)]
-pub struct NewLookupChipsetModel {
+#[diesel(table_name = unwrap_chipset)]
+pub struct NewUnwrapChipsetModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_locale_code)]
+#[diesel(table_name = unwrap_locale_code)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupLocaleCodeModel {
+pub struct UnwrapLocaleCodeModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_locale_code)]
-pub struct NewLookupLocaleCodeModel {
+#[diesel(table_name = unwrap_locale_code)]
+pub struct NewUnwrapLocaleCodeModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_timezone)]
+#[diesel(table_name = unwrap_timezone)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupTimezoneModel {
+pub struct UnwrapTimezoneModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_timezone)]
-pub struct NewLookupTimezoneModel {
+#[diesel(table_name = unwrap_timezone)]
+pub struct NewUnwrapTimezoneModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_app_name)]
+#[diesel(table_name = unwrap_app_name)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupAppNameModel {
+pub struct UnwrapAppNameModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_app_name)]
-pub struct NewLookupAppNameModel {
+#[diesel(table_name = unwrap_app_name)]
+pub struct NewUnwrapAppNameModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_app_version)]
+#[diesel(table_name = unwrap_app_version)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupAppVersionModel {
+pub struct UnwrapAppVersionModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_app_version)]
-pub struct NewLookupAppVersionModel {
+#[diesel(table_name = unwrap_app_version)]
+pub struct NewUnwrapAppVersionModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_app_build)]
+#[diesel(table_name = unwrap_app_build)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupAppBuildModel {
+pub struct UnwrapAppBuildModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_app_build)]
-pub struct NewLookupAppBuildModel {
+#[diesel(table_name = unwrap_app_build)]
+pub struct NewUnwrapAppBuildModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_user)]
+#[diesel(table_name = unwrap_user)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupUserModel {
+pub struct UnwrapUserModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_user)]
-pub struct NewLookupUserModel {
+#[diesel(table_name = unwrap_user)]
+pub struct NewUnwrapUserModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_exception_type)]
+#[diesel(table_name = unwrap_exception_type)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupExceptionTypeModel {
+pub struct UnwrapExceptionTypeModel {
     pub id: i32,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_exception_type)]
-pub struct NewLookupExceptionTypeModel {
+#[diesel(table_name = unwrap_exception_type)]
+pub struct NewUnwrapExceptionTypeModel {
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_device_specs)]
+#[diesel(table_name = unwrap_device_specs)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupDeviceSpecsModel {
+pub struct UnwrapDeviceSpecsModel {
     pub id: i32,
     pub screen_width: Option<i32>,
     pub screen_height: Option<i32>,
@@ -327,8 +327,8 @@ pub struct LookupDeviceSpecsModel {
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_device_specs)]
-pub struct NewLookupDeviceSpecsModel {
+#[diesel(table_name = unwrap_device_specs)]
+pub struct NewUnwrapDeviceSpecsModel {
     pub screen_width: Option<i32>,
     pub screen_height: Option<i32>,
     pub screen_density: Option<f32>,
@@ -339,25 +339,25 @@ pub struct NewLookupDeviceSpecsModel {
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_exception_message)]
+#[diesel(table_name = unwrap_exception_message)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupExceptionMessageModel {
+pub struct UnwrapExceptionMessageModel {
     pub id: i32,
     pub hash: String,
     pub value: String,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_exception_message)]
-pub struct NewLookupExceptionMessageModel {
+#[diesel(table_name = unwrap_exception_message)]
+pub struct NewUnwrapExceptionMessageModel {
     pub hash: String,
     pub value: String,
 }
 
 #[derive(Queryable, Selectable, Debug, Clone)]
-#[diesel(table_name = lookup_stacktrace)]
+#[diesel(table_name = unwrap_stacktrace)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct LookupStacktraceModel {
+pub struct UnwrapStacktraceModel {
     pub id: i32,
     pub hash: String,
     pub fingerprint_hash: Option<String>,
@@ -365,8 +365,8 @@ pub struct LookupStacktraceModel {
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = lookup_stacktrace)]
-pub struct NewLookupStacktraceModel {
+#[diesel(table_name = unwrap_stacktrace)]
+pub struct NewUnwrapStacktraceModel {
     pub hash: String,
     pub fingerprint_hash: Option<String>,
     pub frames_json: Vec<u8>,

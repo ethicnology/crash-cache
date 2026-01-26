@@ -68,11 +68,11 @@ impl DigestReportUseCase {
 
         let timestamp = self.parse_timestamp(&sentry_report.timestamp);
 
-        let platform_id = self.get_or_create_lookup(&sentry_report.platform, |v| {
+        let platform_id = self.get_or_create_unwrap(&sentry_report.platform, |v| {
             self.repos.platform.get_or_create(v)
         })?;
 
-        let environment_id = self.get_or_create_lookup(&sentry_report.environment, |v| {
+        let environment_id = self.get_or_create_unwrap(&sentry_report.environment, |v| {
             self.repos.environment.get_or_create(v)
         })?;
 
@@ -120,7 +120,7 @@ impl DigestReportUseCase {
         Ok(())
     }
 
-    fn get_or_create_lookup<F>(
+    fn get_or_create_unwrap<F>(
         &self,
         value: &Option<String>,
         get_or_create_fn: F,

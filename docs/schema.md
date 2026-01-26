@@ -37,95 +37,95 @@ erDiagram
     }
     
     %% ============================================
-    %% LOOKUP TABLES
+    %% UNWRAP TABLES
     %% ============================================
     
-    lookup_platform {
+    unwrap_platform {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_environment {
+    unwrap_environment {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_os_name {
+    unwrap_os_name {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_os_version {
+    unwrap_os_version {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_manufacturer {
+    unwrap_manufacturer {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_brand {
+    unwrap_brand {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_model {
+    unwrap_model {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_chipset {
+    unwrap_chipset {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_locale_code {
+    unwrap_locale_code {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_timezone {
+    unwrap_timezone {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_connection_type {
+    unwrap_connection_type {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_orientation {
+    unwrap_orientation {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_app_name {
+    unwrap_app_name {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_app_version {
+    unwrap_app_version {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_app_build {
+    unwrap_app_build {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_user {
+    unwrap_user {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_exception_type {
+    unwrap_exception_type {
         INTEGER id PK
         TEXT value UK
     }
     
-    lookup_device_specs {
+    unwrap_device_specs {
         INTEGER id PK
         INTEGER screen_width
         INTEGER screen_height
@@ -136,13 +136,13 @@ erDiagram
         TEXT archs
     }
     
-    lookup_exception_message {
+    unwrap_exception_message {
         INTEGER id PK
         TEXT hash UK
         TEXT value
     }
     
-    lookup_stacktrace {
+    unwrap_stacktrace {
         INTEGER id PK
         TEXT hash UK
         TEXT fingerprint_hash FK
@@ -208,28 +208,28 @@ erDiagram
     project ||--o{ archive : "receives"
     project ||--o{ report : "owns"
     
-    lookup_platform ||--o{ report : "platform"
-    lookup_environment ||--o{ report : "environment"
-    lookup_os_name ||--o{ report : "os_name"
-    lookup_os_version ||--o{ report : "os_version"
-    lookup_manufacturer ||--o{ report : "manufacturer"
-    lookup_brand ||--o{ report : "brand"
-    lookup_model ||--o{ report : "model"
-    lookup_chipset ||--o{ report : "chipset"
-    lookup_locale_code ||--o{ report : "locale"
-    lookup_timezone ||--o{ report : "timezone"
-    lookup_connection_type ||--o{ report : "connection"
-    lookup_orientation ||--o{ report : "orientation"
-    lookup_app_name ||--o{ report : "app_name"
-    lookup_app_version ||--o{ report : "app_version"
-    lookup_app_build ||--o{ report : "app_build"
-    lookup_user ||--o{ report : "user"
-    lookup_exception_type ||--o{ report : "exception_type"
-    lookup_exception_type ||--o{ issue : "exception_type"
+    unwrap_platform ||--o{ report : "platform"
+    unwrap_environment ||--o{ report : "environment"
+    unwrap_os_name ||--o{ report : "os_name"
+    unwrap_os_version ||--o{ report : "os_version"
+    unwrap_manufacturer ||--o{ report : "manufacturer"
+    unwrap_brand ||--o{ report : "brand"
+    unwrap_model ||--o{ report : "model"
+    unwrap_chipset ||--o{ report : "chipset"
+    unwrap_locale_code ||--o{ report : "locale"
+    unwrap_timezone ||--o{ report : "timezone"
+    unwrap_connection_type ||--o{ report : "connection"
+    unwrap_orientation ||--o{ report : "orientation"
+    unwrap_app_name ||--o{ report : "app_name"
+    unwrap_app_version ||--o{ report : "app_version"
+    unwrap_app_build ||--o{ report : "app_build"
+    unwrap_user ||--o{ report : "user"
+    unwrap_exception_type ||--o{ report : "exception_type"
+    unwrap_exception_type ||--o{ issue : "exception_type"
     
-    lookup_device_specs ||--o{ report : "device_specs"
-    lookup_exception_message ||--o{ report : "exception_msg"
-    lookup_stacktrace ||--o{ report : "stacktrace"
+    unwrap_device_specs ||--o{ report : "device_specs"
+    unwrap_exception_message ||--o{ report : "exception_msg"
+    unwrap_stacktrace ||--o{ report : "stacktrace"
     issue ||--o{ report : "issue"
 ```
 
@@ -238,7 +238,7 @@ erDiagram
 | Category | Tables | Purpose |
 |----------|--------|---------|
 | **Core** | `project`, `archive`, `queue`, `queue_error` | Project config, raw storage, async processing |
-| **Lookup** | 20 `lookup_*` tables | Deduplicated string values (normalized) |
+| **Unwrap** | 20 `unwrap_*` tables | Deduplicated string values (normalized) |
 | **Issue** | `issue` | Error grouping by fingerprint |
 | **Main** | `report` | Central table with 22 FK references |
 
@@ -255,7 +255,7 @@ flowchart LR
     subgraph Processing
         D -->|worker| E[DigestReportUseCase]
         E -->|decompress| C
-        E -->|parse & normalize| F[lookup_* tables]
+        E -->|parse & normalize| F[unwrap_* tables]
         E -->|extract| G[issue]
         E -->|create| H[report]
         E -->|on error| I[queue_error]
@@ -277,4 +277,4 @@ flowchart LR
 | `idx_report_timestamp` | report | timestamp | Time-based queries |
 | `idx_report_issue` | report | issue_id | Group by issue |
 | `idx_report_user` | report | user_id | Filter by user |
-| `idx_lookup_stacktrace_fingerprint` | lookup_stacktrace | fingerprint_hash | Find stacktraces by fingerprint |
+| `idx_unwrap_stacktrace_fingerprint` | unwrap_stacktrace | fingerprint_hash | Find stacktraces by fingerprint |

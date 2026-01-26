@@ -7,7 +7,7 @@ use crate::shared::persistence::sqlite::schema::*;
 
 type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
 
-macro_rules! impl_lookup_repository {
+macro_rules! impl_unwrap_repository {
     ($repo_name:ident, $table:ident, $model:ident, $new_model:ident) => {
         #[derive(Clone)]
         pub struct $repo_name {
@@ -70,20 +70,20 @@ macro_rules! impl_lookup_repository {
     };
 }
 
-impl_lookup_repository!(LookupPlatformRepository, lookup_platform, LookupPlatformModel, NewLookupPlatformModel);
-impl_lookup_repository!(LookupEnvironmentRepository, lookup_environment, LookupEnvironmentModel, NewLookupEnvironmentModel);
-impl_lookup_repository!(LookupConnectionTypeRepository, lookup_connection_type, LookupConnectionTypeModel, NewLookupConnectionTypeModel);
-impl_lookup_repository!(LookupOrientationRepository, lookup_orientation, LookupOrientationModel, NewLookupOrientationModel);
-impl_lookup_repository!(LookupOsNameRepository, lookup_os_name, LookupOsNameModel, NewLookupOsNameModel);
-impl_lookup_repository!(LookupOsVersionRepository, lookup_os_version, LookupOsVersionModel, NewLookupOsVersionModel);
-impl_lookup_repository!(LookupManufacturerRepository, lookup_manufacturer, LookupManufacturerModel, NewLookupManufacturerModel);
-impl_lookup_repository!(LookupBrandRepository, lookup_brand, LookupBrandModel, NewLookupBrandModel);
-impl_lookup_repository!(LookupModelRepository, lookup_model, LookupModelModel, NewLookupModelModel);
-impl_lookup_repository!(LookupChipsetRepository, lookup_chipset, LookupChipsetModel, NewLookupChipsetModel);
-impl_lookup_repository!(LookupLocaleCodeRepository, lookup_locale_code, LookupLocaleCodeModel, NewLookupLocaleCodeModel);
-impl_lookup_repository!(LookupTimezoneRepository, lookup_timezone, LookupTimezoneModel, NewLookupTimezoneModel);
-impl_lookup_repository!(LookupAppNameRepository, lookup_app_name, LookupAppNameModel, NewLookupAppNameModel);
-impl_lookup_repository!(LookupAppVersionRepository, lookup_app_version, LookupAppVersionModel, NewLookupAppVersionModel);
-impl_lookup_repository!(LookupAppBuildRepository, lookup_app_build, LookupAppBuildModel, NewLookupAppBuildModel);
-impl_lookup_repository!(LookupUserRepository, lookup_user, LookupUserModel, NewLookupUserModel);
-impl_lookup_repository!(LookupExceptionTypeRepository, lookup_exception_type, LookupExceptionTypeModel, NewLookupExceptionTypeModel);
+impl_unwrap_repository!(UnwrapPlatformRepository, unwrap_platform, UnwrapPlatformModel, NewUnwrapPlatformModel);
+impl_unwrap_repository!(UnwrapEnvironmentRepository, unwrap_environment, UnwrapEnvironmentModel, NewUnwrapEnvironmentModel);
+impl_unwrap_repository!(UnwrapConnectionTypeRepository, unwrap_connection_type, UnwrapConnectionTypeModel, NewUnwrapConnectionTypeModel);
+impl_unwrap_repository!(UnwrapOrientationRepository, unwrap_orientation, UnwrapOrientationModel, NewUnwrapOrientationModel);
+impl_unwrap_repository!(UnwrapOsNameRepository, unwrap_os_name, UnwrapOsNameModel, NewUnwrapOsNameModel);
+impl_unwrap_repository!(UnwrapOsVersionRepository, unwrap_os_version, UnwrapOsVersionModel, NewUnwrapOsVersionModel);
+impl_unwrap_repository!(UnwrapManufacturerRepository, unwrap_manufacturer, UnwrapManufacturerModel, NewUnwrapManufacturerModel);
+impl_unwrap_repository!(UnwrapBrandRepository, unwrap_brand, UnwrapBrandModel, NewUnwrapBrandModel);
+impl_unwrap_repository!(UnwrapModelRepository, unwrap_model, UnwrapModelModel, NewUnwrapModelModel);
+impl_unwrap_repository!(UnwrapChipsetRepository, unwrap_chipset, UnwrapChipsetModel, NewUnwrapChipsetModel);
+impl_unwrap_repository!(UnwrapLocaleCodeRepository, unwrap_locale_code, UnwrapLocaleCodeModel, NewUnwrapLocaleCodeModel);
+impl_unwrap_repository!(UnwrapTimezoneRepository, unwrap_timezone, UnwrapTimezoneModel, NewUnwrapTimezoneModel);
+impl_unwrap_repository!(UnwrapAppNameRepository, unwrap_app_name, UnwrapAppNameModel, NewUnwrapAppNameModel);
+impl_unwrap_repository!(UnwrapAppVersionRepository, unwrap_app_version, UnwrapAppVersionModel, NewUnwrapAppVersionModel);
+impl_unwrap_repository!(UnwrapAppBuildRepository, unwrap_app_build, UnwrapAppBuildModel, NewUnwrapAppBuildModel);
+impl_unwrap_repository!(UnwrapUserRepository, unwrap_user, UnwrapUserModel, NewUnwrapUserModel);
+impl_unwrap_repository!(UnwrapExceptionTypeRepository, unwrap_exception_type, UnwrapExceptionTypeModel, NewUnwrapExceptionTypeModel);

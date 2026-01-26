@@ -34,95 +34,95 @@ CREATE TABLE IF NOT EXISTS queue_error (
 );
 
 -- ============================================
--- LOOKUP TABLES (id / value UNIQUE)
+-- UNWRAP TABLES (id / value UNIQUE)
 -- ============================================
 
-CREATE TABLE IF NOT EXISTS lookup_platform (
+CREATE TABLE IF NOT EXISTS unwrap_platform (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_environment (
+CREATE TABLE IF NOT EXISTS unwrap_environment (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_connection_type (
+CREATE TABLE IF NOT EXISTS unwrap_connection_type (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_orientation (
+CREATE TABLE IF NOT EXISTS unwrap_orientation (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_os_name (
+CREATE TABLE IF NOT EXISTS unwrap_os_name (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_os_version (
+CREATE TABLE IF NOT EXISTS unwrap_os_version (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_manufacturer (
+CREATE TABLE IF NOT EXISTS unwrap_manufacturer (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_brand (
+CREATE TABLE IF NOT EXISTS unwrap_brand (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_model (
+CREATE TABLE IF NOT EXISTS unwrap_model (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_chipset (
+CREATE TABLE IF NOT EXISTS unwrap_chipset (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_locale_code (
+CREATE TABLE IF NOT EXISTS unwrap_locale_code (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_timezone (
+CREATE TABLE IF NOT EXISTS unwrap_timezone (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_app_name (
+CREATE TABLE IF NOT EXISTS unwrap_app_name (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_app_version (
+CREATE TABLE IF NOT EXISTS unwrap_app_version (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_app_build (
+CREATE TABLE IF NOT EXISTS unwrap_app_build (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_user (
+CREATE TABLE IF NOT EXISTS unwrap_user (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_exception_type (
+CREATE TABLE IF NOT EXISTS unwrap_exception_type (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     value TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_device_specs (
+CREATE TABLE IF NOT EXISTS unwrap_device_specs (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     screen_width INTEGER,
     screen_height INTEGER,
@@ -134,13 +134,13 @@ CREATE TABLE IF NOT EXISTS lookup_device_specs (
     UNIQUE(screen_width, screen_height, screen_density, screen_dpi, processor_count, memory_size, archs)
 );
 
-CREATE TABLE IF NOT EXISTS lookup_exception_message (
+CREATE TABLE IF NOT EXISTS unwrap_exception_message (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     hash TEXT UNIQUE NOT NULL,
     value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS lookup_stacktrace (
+CREATE TABLE IF NOT EXISTS unwrap_stacktrace (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     hash TEXT UNIQUE NOT NULL,
     fingerprint_hash TEXT,
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS issue (
     first_seen TIMESTAMP NOT NULL,
     last_seen TIMESTAMP NOT NULL,
     event_count INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY (exception_type_id) REFERENCES lookup_exception_type(id)
+    FOREIGN KEY (exception_type_id) REFERENCES unwrap_exception_type(id)
 );
 
 -- ============================================
@@ -204,26 +204,26 @@ CREATE TABLE IF NOT EXISTS report (
 
     FOREIGN KEY (archive_hash) REFERENCES archive(hash),
     FOREIGN KEY (project_id) REFERENCES project(id),
-    FOREIGN KEY (platform_id) REFERENCES lookup_platform(id),
-    FOREIGN KEY (environment_id) REFERENCES lookup_environment(id),
-    FOREIGN KEY (os_name_id) REFERENCES lookup_os_name(id),
-    FOREIGN KEY (os_version_id) REFERENCES lookup_os_version(id),
-    FOREIGN KEY (manufacturer_id) REFERENCES lookup_manufacturer(id),
-    FOREIGN KEY (brand_id) REFERENCES lookup_brand(id),
-    FOREIGN KEY (model_id) REFERENCES lookup_model(id),
-    FOREIGN KEY (chipset_id) REFERENCES lookup_chipset(id),
-    FOREIGN KEY (device_specs_id) REFERENCES lookup_device_specs(id),
-    FOREIGN KEY (locale_code_id) REFERENCES lookup_locale_code(id),
-    FOREIGN KEY (timezone_id) REFERENCES lookup_timezone(id),
-    FOREIGN KEY (connection_type_id) REFERENCES lookup_connection_type(id),
-    FOREIGN KEY (orientation_id) REFERENCES lookup_orientation(id),
-    FOREIGN KEY (app_name_id) REFERENCES lookup_app_name(id),
-    FOREIGN KEY (app_version_id) REFERENCES lookup_app_version(id),
-    FOREIGN KEY (app_build_id) REFERENCES lookup_app_build(id),
-    FOREIGN KEY (user_id) REFERENCES lookup_user(id),
-    FOREIGN KEY (exception_type_id) REFERENCES lookup_exception_type(id),
-    FOREIGN KEY (exception_message_id) REFERENCES lookup_exception_message(id),
-    FOREIGN KEY (stacktrace_id) REFERENCES lookup_stacktrace(id),
+    FOREIGN KEY (platform_id) REFERENCES unwrap_platform(id),
+    FOREIGN KEY (environment_id) REFERENCES unwrap_environment(id),
+    FOREIGN KEY (os_name_id) REFERENCES unwrap_os_name(id),
+    FOREIGN KEY (os_version_id) REFERENCES unwrap_os_version(id),
+    FOREIGN KEY (manufacturer_id) REFERENCES unwrap_manufacturer(id),
+    FOREIGN KEY (brand_id) REFERENCES unwrap_brand(id),
+    FOREIGN KEY (model_id) REFERENCES unwrap_model(id),
+    FOREIGN KEY (chipset_id) REFERENCES unwrap_chipset(id),
+    FOREIGN KEY (device_specs_id) REFERENCES unwrap_device_specs(id),
+    FOREIGN KEY (locale_code_id) REFERENCES unwrap_locale_code(id),
+    FOREIGN KEY (timezone_id) REFERENCES unwrap_timezone(id),
+    FOREIGN KEY (connection_type_id) REFERENCES unwrap_connection_type(id),
+    FOREIGN KEY (orientation_id) REFERENCES unwrap_orientation(id),
+    FOREIGN KEY (app_name_id) REFERENCES unwrap_app_name(id),
+    FOREIGN KEY (app_version_id) REFERENCES unwrap_app_version(id),
+    FOREIGN KEY (app_build_id) REFERENCES unwrap_app_build(id),
+    FOREIGN KEY (user_id) REFERENCES unwrap_user(id),
+    FOREIGN KEY (exception_type_id) REFERENCES unwrap_exception_type(id),
+    FOREIGN KEY (exception_message_id) REFERENCES unwrap_exception_message(id),
+    FOREIGN KEY (stacktrace_id) REFERENCES unwrap_stacktrace(id),
     FOREIGN KEY (issue_id) REFERENCES issue(id)
 );
 
@@ -236,4 +236,4 @@ CREATE INDEX IF NOT EXISTS idx_report_project ON report(project_id);
 CREATE INDEX IF NOT EXISTS idx_report_timestamp ON report(timestamp);
 CREATE INDEX IF NOT EXISTS idx_report_issue ON report(issue_id);
 CREATE INDEX IF NOT EXISTS idx_report_user ON report(user_id);
-CREATE INDEX IF NOT EXISTS idx_lookup_stacktrace_fingerprint ON lookup_stacktrace(fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_unwrap_stacktrace_fingerprint ON unwrap_stacktrace(fingerprint_hash);
