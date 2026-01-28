@@ -1,174 +1,70 @@
-use axum::extract::DefaultBodyLimit;
-use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
-use tokio::net::TcpListener;
-use tokio::signal;
-use tokio::sync::Semaphore;
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
+use clap::{Parser, Subcommand};
 
 use crash_cache::config::Settings;
-use crash_cache::features::digest::{DigestReportUseCase, DigestWorker};
-use crash_cache::features::ingest::{create_api_router, create_health_router, AppState, HealthStats, IngestReportUseCase};
-use crash_cache::shared::analytics::AnalyticsCollector;
-use crash_cache::shared::compression::GzipCompressor;
-use crash_cache::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
-use crash_cache::shared::rate_limit::{
-    create_global_rate_limiter, create_ip_rate_limiter, create_project_rate_limiter,
-    AnalyticsLayer, RateLimitAnalyticsLayer, RateLimitType,
+use crash_cache::features::cli::{ArchiveCommand, ProjectCommand, archive, project, ruminate};
+use crash_cache::features::serve::run_server;
+use crash_cache::shared::persistence::{
+    ProjectRepository, establish_connection_pool, run_migrations,
 };
 
-const MAX_BODY_SIZE: usize = 1024 * 1024; // 1 MB
+#[derive(Parser)]
+#[command(name = "crash-cache")]
+#[command(about = "Crash reporting server and CLI", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the crash-cache server
+    Serve,
+    /// Manage projects
+    Project {
+        #[command(subcommand)]
+        action: ProjectCommand,
+    },
+    /// Export/import archives
+    Archive {
+        #[command(subcommand)]
+        action: ArchiveCommand,
+    },
+    /// Re-digest all archives from scratch (clears all data except archives and projects)
+    Ruminate {
+        #[arg(short, long, help = "Skip confirmation prompt")]
+        yes: bool,
+    },
+}
 
 #[tokio::main]
 async fn main() {
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+    let cli = Cli::parse();
 
-    let settings = Settings::from_env();
-    info!("Starting crash-cache server");
+    dotenvy::dotenv().ok();
 
-    let pool = establish_connection_pool(&settings.database_url);
-    run_migrations(&pool);
-    info!("Database initialized");
-
-    let repos = Repositories::new(pool.clone());
-    let compressor = GzipCompressor::new();
-
-    let analytics_collector = AnalyticsCollector::new(
-        repos.analytics.clone(),
-        Some(settings.analytics_flush_interval_secs),
-        Some(settings.analytics_retention_days),
-    );
-    info!(
-        flush_interval = settings.analytics_flush_interval_secs,
-        retention_days = settings.analytics_retention_days,
-        "Analytics collector initialized"
-    );
-
-    let ingest_use_case = IngestReportUseCase::new(
-        repos.archive.clone(),
-        repos.queue.clone(),
-        repos.project.clone(),
-    );
-
-    let digest_use_case = DigestReportUseCase::new(repos.clone(), compressor);
-
-    let worker = DigestWorker::new(
-        digest_use_case,
-        settings.worker_interval_secs,
-        settings.worker_budget_secs,
-    );
-    let shutdown_handle = worker.shutdown_handle();
-
-    let worker_handle = tokio::spawn(async move {
-        worker.run().await;
-    });
-
-    let compression_semaphore = Arc::new(Semaphore::new(settings.max_concurrent_compressions));
-    info!(
-        max_concurrent_compressions = settings.max_concurrent_compressions,
-        "Compression semaphore initialized"
-    );
-
-    let app_state = AppState {
-        ingest_use_case,
-        compression_semaphore,
-        pool,
-        project_repo: repos.project.clone(),
-        health_cache: Arc::new(RwLock::new(HealthStats::default())),
-        health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
-        // Session repositories
-        session_repo: repos.session.clone(),
-        session_status_repo: repos.session_status.clone(),
-        session_release_repo: repos.session_release.clone(),
-        session_environment_repo: repos.session_environment.clone(),
-    };
-
-    info!(
-        global = settings.rate_limit_global_per_sec,
-        per_ip = settings.rate_limit_per_ip_per_sec,
-        per_project = settings.rate_limit_per_project_per_sec,
-        "Rate limiting configured (0 = disabled)"
-    );
-
-    let mut api_router = create_api_router(app_state.clone())
-        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
-        .layer(AnalyticsLayer::new(analytics_collector.clone()));
-
-    if let Some(layer) = create_ip_rate_limiter(settings.rate_limit_per_ip_per_sec) {
-        api_router = api_router
-            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Ip))
-            .layer(layer);
-        info!("Per-IP rate limiter enabled");
+    match cli.command {
+        Commands::Serve => {
+            run_server().await;
+        }
+        Commands::Project { action } => {
+            let settings = Settings::from_env();
+            let pool = establish_connection_pool(&settings.database_url);
+            run_migrations(&pool);
+            let project_repo = ProjectRepository::new(pool.clone());
+            let server_addr = settings.server_addr();
+            project::handle(action, &project_repo, &server_addr);
+        }
+        Commands::Archive { action } => {
+            let settings = Settings::from_env();
+            let pool = establish_connection_pool(&settings.database_url);
+            run_migrations(&pool);
+            archive::handle(action, &pool);
+        }
+        Commands::Ruminate { yes } => {
+            let settings = Settings::from_env();
+            let pool = establish_connection_pool(&settings.database_url);
+            run_migrations(&pool);
+            ruminate::handle(&pool, yes);
+        }
     }
-
-    if let Some(layer) = create_project_rate_limiter(settings.rate_limit_per_project_per_sec) {
-        api_router = api_router
-            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Project))
-            .layer(layer);
-        info!("Per-project rate limiter enabled");
-    }
-
-    if let Some(layer) = create_global_rate_limiter(settings.rate_limit_global_per_sec) {
-        api_router = api_router
-            .layer(RateLimitAnalyticsLayer::new(analytics_collector.clone(), RateLimitType::Global))
-            .layer(layer);
-        info!("Global rate limiter enabled");
-    }
-
-    // Health router without rate limiting
-    let health_router = create_health_router(app_state);
-
-    // Merge routers
-    let app = api_router.merge(health_router);
-
-    let addr = settings.server_addr();
-    info!(addr = %addr, "Server listening");
-    info!("DSN format: http://<key>@{addr}/<project_id>");
-
-    let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
-
-    // Use into_make_service_with_connect_info to enable SmartIpKeyExtractor to access peer IP
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal(shutdown_handle))
-    .await
-    .expect("Server error");
-
-    worker_handle.await.ok();
-    info!("Server shutdown complete");
-}
-
-async fn shutdown_signal(shutdown_handle: Arc<std::sync::atomic::AtomicBool>) {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("Failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-
-    info!("Shutdown signal received");
-    shutdown_handle.store(true, Ordering::SeqCst);
 }

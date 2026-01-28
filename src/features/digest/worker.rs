@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{info, warn};
@@ -58,15 +58,15 @@ impl DigestWorker {
         let mut total_processed = 0u32;
         let batch_size = 50;
 
-        info!("Processing tick started");
-
         loop {
             if start.elapsed() >= budget {
-                info!(
-                    total_processed = total_processed,
-                    elapsed_ms = start.elapsed().as_millis(),
-                    "Processing budget exhausted"
-                );
+                if total_processed > 0 {
+                    info!(
+                        total_processed = total_processed,
+                        elapsed_ms = start.elapsed().as_millis(),
+                        "Processing budget exhausted"
+                    );
+                }
                 break;
             }
 
@@ -88,10 +88,12 @@ impl DigestWorker {
             }
         }
 
-        info!(
-            total_processed = total_processed,
-            elapsed_ms = start.elapsed().as_millis(),
-            "Processing tick completed"
-        );
+        if total_processed > 0 {
+            info!(
+                total_processed = total_processed,
+                elapsed_ms = start.elapsed().as_millis(),
+                "Processing tick completed"
+            );
+        }
     }
 }
