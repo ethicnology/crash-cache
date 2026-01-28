@@ -1,13 +1,13 @@
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use clap::Subcommand;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 
+use crate::shared::persistence::SqlitePool;
 use crate::shared::persistence::sqlite::models::ArchiveModel;
 use crate::shared::persistence::sqlite::schema::archive;
-use crate::shared::persistence::SqlitePool;
 
 #[derive(Subcommand)]
 pub enum ArchiveCommand {
@@ -26,6 +26,11 @@ pub enum ArchiveCommand {
         #[arg(long, default_value = "true")]
         skip_existing: bool,
     },
+    /// View a decompressed archive by hash
+    View {
+        /// Archive hash
+        hash: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,7 +45,11 @@ struct ArchiveRecord {
 pub fn handle(command: ArchiveCommand, pool: &SqlitePool) {
     match command {
         ArchiveCommand::Export { output } => export(pool, output),
-        ArchiveCommand::Import { input, skip_existing } => import(pool, input, skip_existing),
+        ArchiveCommand::Import {
+            input,
+            skip_existing,
+        } => import(pool, input, skip_existing),
+        ArchiveCommand::View { hash } => view(pool, hash),
     }
 }
 
@@ -128,11 +137,9 @@ fn import(pool: &SqlitePool, input: Option<String>, skip_existing: bool) {
             }
         };
 
-        let created_at = chrono::NaiveDateTime::parse_from_str(
-            &record.created_at,
-            "%Y-%m-%dT%H:%M:%S",
-        )
-        .unwrap_or_else(|_| chrono::Utc::now().naive_utc());
+        let created_at =
+            chrono::NaiveDateTime::parse_from_str(&record.created_at, "%Y-%m-%dT%H:%M:%S")
+                .unwrap_or_else(|_| chrono::Utc::now().naive_utc());
 
         let model = ArchiveModel {
             hash: record.hash,
@@ -166,4 +173,53 @@ fn import(pool: &SqlitePool, input: Option<String>, skip_existing: bool) {
         "Import complete: {} imported, {} skipped, {} errors",
         imported, skipped, errors
     );
+}
+
+fn view(pool: &SqlitePool, hash: String) {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let mut conn = pool.get().expect("Failed to get connection");
+
+    let archive: ArchiveModel = match archive::table
+        .filter(archive::hash.eq(&hash))
+        .select(ArchiveModel::as_select())
+        .first(&mut conn)
+    {
+        Ok(a) => a,
+        Err(diesel::NotFound) => {
+            eprintln!("Error: Archive not found with hash: {}", hash);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to query archive: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Decompress the payload
+    let mut decoder = GzDecoder::new(&archive.compressed_payload[..]);
+    let mut decompressed = Vec::new();
+
+    if let Err(e) = decoder.read_to_end(&mut decompressed) {
+        eprintln!("Error: Failed to decompress archive: {}", e);
+        std::process::exit(1);
+    }
+
+    // Try to pretty-print as JSON
+    match serde_json::from_slice::<serde_json::Value>(&decompressed) {
+        Ok(json) => {
+            // Pretty print JSON
+            if let Ok(pretty) = serde_json::to_string_pretty(&json) {
+                println!("{}", pretty);
+            } else {
+                // Fallback to raw if pretty-print fails
+                println!("{}", String::from_utf8_lossy(&decompressed));
+            }
+        }
+        Err(_) => {
+            // Not valid JSON, output as raw text
+            println!("{}", String::from_utf8_lossy(&decompressed));
+        }
+    }
 }
