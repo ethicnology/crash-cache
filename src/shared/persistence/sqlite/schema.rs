@@ -270,7 +270,7 @@ diesel::table! {
         id -> Integer,
         hash -> Text,
         fingerprint_hash -> Nullable<Text>,
-        frames_json -> Binary,
+        frames_json -> Text,
     }
 }
 

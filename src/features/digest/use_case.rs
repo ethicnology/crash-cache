@@ -8,7 +8,13 @@ use crate::shared::persistence::sqlite::models::NewSessionModel;
 use crate::shared::persistence::{DeviceSpecsParams, NewReport, Repositories};
 
 // Type aliases for complex return types
-type DeviceIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+type DeviceIds = (
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+    Option<i32>,
+);
 type LocaleIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
 type AppIds = (Option<i32>, Option<i32>, Option<i32>);
 type ExceptionIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
@@ -21,10 +27,7 @@ pub struct DigestReportUseCase {
 
 impl DigestReportUseCase {
     pub fn new(repos: Repositories, compressor: GzipCompressor) -> Self {
-        Self {
-            repos,
-            compressor,
-        }
+        Self { repos, compressor }
     }
 
     pub fn process_batch(&self, limit: i32) -> Result<u32, DomainError> {
@@ -193,7 +196,10 @@ impl DigestReportUseCase {
             sid: session.sid.clone(),
             init: if session.init { 1 } else { 0 },
             started_at: session.started.clone(),
-            timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+            timestamp: session
+                .timestamp
+                .clone()
+                .unwrap_or_else(|| session.started.clone()),
             errors: session.errors,
             status_id,
             release_id,
@@ -258,10 +264,7 @@ impl DigestReportUseCase {
         Ok((os_name_id, os_version_id))
     }
 
-    fn extract_device_info(
-        &self,
-        report: &SentryReport,
-    ) -> Result<DeviceIds, DomainError> {
+    fn extract_device_info(&self, report: &SentryReport) -> Result<DeviceIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
 
         let manufacturer_id = match device.and_then(|d| d.manufacturer.as_ref()) {
@@ -336,10 +339,7 @@ impl DigestReportUseCase {
         ))
     }
 
-    fn extract_locale_info(
-        &self,
-        report: &SentryReport,
-    ) -> Result<LocaleIds, DomainError> {
+    fn extract_locale_info(&self, report: &SentryReport) -> Result<LocaleIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
         let culture = report.contexts.as_ref().and_then(|c| c.culture.as_ref());
 
@@ -397,10 +397,7 @@ impl DigestReportUseCase {
         ))
     }
 
-    fn extract_app_info(
-        &self,
-        report: &SentryReport,
-    ) -> Result<AppIds, DomainError> {
+    fn extract_app_info(&self, report: &SentryReport) -> Result<AppIds, DomainError> {
         let app = report.contexts.as_ref().and_then(|c| c.app.as_ref());
 
         let release_cache: std::cell::OnceCell<(Option<String>, Option<String>, Option<String>)> =
@@ -485,10 +482,7 @@ impl DigestReportUseCase {
         }
     }
 
-    fn extract_exception_info(
-        &self,
-        report: &SentryReport,
-    ) -> Result<ExceptionIds, DomainError> {
+    fn extract_exception_info(&self, report: &SentryReport) -> Result<ExceptionIds, DomainError> {
         let exception = report
             .exception
             .as_ref()
@@ -567,7 +561,7 @@ impl DigestReportUseCase {
                     .stacktrace
                     .as_ref()
                     .and_then(|s| s.frames.as_ref())
-                    .map(|f| serde_json::to_vec(f).unwrap_or_default())
+                    .map(|f| serde_json::to_string(f).unwrap_or_default())
                     .unwrap_or_default();
 
                 Some(
@@ -607,10 +601,14 @@ impl DigestReportUseCase {
                 return serde_json::from_slice(event_payload)
                     .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)));
             }
-            return Err(DomainError::Serialization("No event found in envelope".to_string()));
+            return Err(DomainError::Serialization(
+                "No event found in envelope".to_string(),
+            ));
         }
 
-        Err(DomainError::Serialization("Unable to parse payload as JSON or envelope".to_string()))
+        Err(DomainError::Serialization(
+            "Unable to parse payload as JSON or envelope".to_string(),
+        ))
     }
 
     fn parse_timestamp(&self, timestamp: &Option<String>) -> i64 {
@@ -624,11 +622,7 @@ impl DigestReportUseCase {
             .unwrap_or_else(|| chrono::Utc::now().timestamp())
     }
 
-    fn handle_failure(
-        &self,
-        item: &QueueItem,
-        err: DomainError,
-    ) -> Result<(), DomainError> {
+    fn handle_failure(&self, item: &QueueItem, err: DomainError) -> Result<(), DomainError> {
         error!(
             archive_hash = %item.archive_hash,
             error = %err,
@@ -636,7 +630,9 @@ impl DigestReportUseCase {
         );
 
         // Record the error
-        self.repos.queue_error.record_error(&item.archive_hash, &err.to_string())?;
+        self.repos
+            .queue_error
+            .record_error(&item.archive_hash, &err.to_string())?;
 
         // Remove from processing queue
         self.repos.queue.remove(&item.archive_hash)?;

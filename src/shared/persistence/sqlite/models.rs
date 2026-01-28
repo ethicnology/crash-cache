@@ -2,14 +2,13 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
 use super::schema::{
-    project, archive, queue, queue_error,
-    unwrap_session_status, unwrap_session_release, unwrap_session_environment, session,
-    unwrap_platform, unwrap_environment, unwrap_connection_type, unwrap_orientation,
-    unwrap_os_name, unwrap_os_version, unwrap_manufacturer, unwrap_brand, unwrap_model,
-    unwrap_chipset, unwrap_locale_code, unwrap_timezone, unwrap_app_name, unwrap_app_version,
-    unwrap_app_build, unwrap_user, unwrap_exception_type, unwrap_device_specs,
-    unwrap_exception_message, unwrap_stacktrace, issue, report,
-    bucket_rate_limit_global, bucket_rate_limit_dsn, bucket_rate_limit_subnet, bucket_request_latency,
+    archive, bucket_rate_limit_dsn, bucket_rate_limit_global, bucket_rate_limit_subnet,
+    bucket_request_latency, issue, project, queue, queue_error, report, session, unwrap_app_build,
+    unwrap_app_name, unwrap_app_version, unwrap_brand, unwrap_chipset, unwrap_connection_type,
+    unwrap_device_specs, unwrap_environment, unwrap_exception_message, unwrap_exception_type,
+    unwrap_locale_code, unwrap_manufacturer, unwrap_model, unwrap_orientation, unwrap_os_name,
+    unwrap_os_version, unwrap_platform, unwrap_session_environment, unwrap_session_release,
+    unwrap_session_status, unwrap_stacktrace, unwrap_timezone, unwrap_user,
 };
 
 // ============================================
@@ -446,7 +445,7 @@ pub struct UnwrapStacktraceModel {
     pub id: i32,
     pub hash: String,
     pub fingerprint_hash: Option<String>,
-    pub frames_json: Vec<u8>,
+    pub frames_json: String,
 }
 
 #[derive(Insertable, Debug)]
@@ -454,7 +453,7 @@ pub struct UnwrapStacktraceModel {
 pub struct NewUnwrapStacktraceModel {
     pub hash: String,
     pub fingerprint_hash: Option<String>,
-    pub frames_json: Vec<u8>,
+    pub frames_json: String,
 }
 
 // ============================================

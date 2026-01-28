@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS unwrap_stacktrace (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     hash TEXT UNIQUE NOT NULL,
     fingerprint_hash TEXT,
-    frames_json BLOB NOT NULL
+    frames_json TEXT NOT NULL
 );
 
 -- ============================================

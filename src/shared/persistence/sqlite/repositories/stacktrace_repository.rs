@@ -21,7 +21,7 @@ impl StacktraceRepository {
         &self,
         hash: &str,
         fingerprint_hash: Option<String>,
-        frames_json: &[u8],
+        frames_json: &str,
     ) -> Result<i32, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
@@ -37,7 +37,7 @@ impl StacktraceRepository {
         let new_record = NewUnwrapStacktraceModel {
             hash: hash.to_string(),
             fingerprint_hash,
-            frames_json: frames_json.to_vec(),
+            frames_json: frames_json.to_string(),
         };
 
         diesel::insert_into(unwrap_stacktrace::table)
@@ -52,7 +52,10 @@ impl StacktraceRepository {
         Ok(inserted.id)
     }
 
-    pub fn find_by_hash(&self, hash: &str) -> Result<Option<UnwrapStacktraceModel>, diesel::result::Error> {
+    pub fn find_by_hash(
+        &self,
+        hash: &str,
+    ) -> Result<Option<UnwrapStacktraceModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
         unwrap_stacktrace::table
@@ -62,7 +65,10 @@ impl StacktraceRepository {
             .optional()
     }
 
-    pub fn find_by_fingerprint(&self, fingerprint_hash: &str) -> Result<Vec<UnwrapStacktraceModel>, diesel::result::Error> {
+    pub fn find_by_fingerprint(
+        &self,
+        fingerprint_hash: &str,
+    ) -> Result<Vec<UnwrapStacktraceModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
         unwrap_stacktrace::table
