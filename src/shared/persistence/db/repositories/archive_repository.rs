@@ -1,4 +1,4 @@
-use super::{DbConnection, DbPool};
+use super::DbConnection;
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
@@ -6,22 +6,15 @@ use crate::shared::domain::{Archive, DomainError};
 use crate::shared::persistence::db::models::ArchiveModel;
 use crate::shared::persistence::db::schema::archive;
 
-#[derive(Clone)]
-pub struct ArchiveRepository {
-    pool: DbPool,
-}
+#[derive(Clone, Default)]
+pub struct ArchiveRepository {}
 
 impl ArchiveRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn save(&self, arch: &Archive) -> Result<(), DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn save(&self, conn: &mut DbConnection, arch: &Archive) -> Result<(), DomainError> {
         let model = ArchiveModel {
             hash: arch.hash.clone(),
             project_id: arch.project_id,
@@ -34,7 +27,7 @@ impl ArchiveRepository {
             .values(&model)
             .on_conflict(archive::hash)
             .do_nothing()
-            .execute(&mut conn)
+            .execute(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(())
@@ -60,16 +53,11 @@ impl ArchiveRepository {
         }))
     }
 
-    pub fn exists(&self, hash: &str) -> Result<bool, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn exists(&self, conn: &mut DbConnection, hash: &str) -> Result<bool, DomainError> {
         let count: i64 = archive::table
             .filter(archive::hash.eq(hash))
             .count()
-            .get_result(&mut conn)
+            .get_result(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(count > 0)

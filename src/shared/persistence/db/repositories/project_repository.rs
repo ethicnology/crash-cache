@@ -61,16 +61,11 @@ impl ProjectRepository {
         }))
     }
 
-    pub fn exists(&self, id: i32) -> Result<bool, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn exists(&self, conn: &mut super::DbConnection, id: i32) -> Result<bool, DomainError> {
         let count: i64 = project::table
             .filter(project::id.eq(id))
             .count()
-            .get_result(&mut conn)
+            .get_result(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(count > 0)
@@ -78,10 +73,19 @@ impl ProjectRepository {
 
     /// Validates that the given public_key matches the project's stored key.
     /// Returns Ok(true) if valid, Ok(false) if invalid key, Err if project not found.
-    pub fn validate_key(&self, id: i32, public_key: &str) -> Result<bool, DomainError> {
-        let project = self.find_by_id(id)?;
+    pub fn validate_key(
+        &self,
+        conn: &mut super::DbConnection,
+        id: i32,
+        public_key: &str,
+    ) -> Result<bool, DomainError> {
+        let result = project::table
+            .filter(project::id.eq(id))
+            .first::<ProjectModel>(conn)
+            .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        match project {
+        match result {
             Some(p) => match p.public_key {
                 Some(stored_key) => Ok(stored_key == public_key),
                 None => Ok(true), // No key configured = accept all

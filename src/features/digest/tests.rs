@@ -134,18 +134,19 @@ fn test_process_extracts_and_stores_report() {
         repos.project.clone(),
     );
 
-    let process_use_case = DigestReportUseCase::new(repos.clone(), pool, compressor);
+    let process_use_case = DigestReportUseCase::new(repos.clone(), pool.clone(), compressor);
 
     let payload = sample_sentry_payload();
     let (hash, compressed) = compress_and_hash(&payload);
+    let mut conn = pool.get().unwrap();
     ingest_use_case
-        .execute(project_id, hash, compressed, None)
+        .execute(&mut conn, project_id, hash, compressed, None)
         .unwrap();
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 1);
 
-    let pending = queue_repo.count_pending().unwrap();
+    let pending = queue_repo.count_pending(&mut conn).unwrap();
     assert_eq!(pending, 0);
 }
 
@@ -172,7 +173,7 @@ fn test_process_multiple_events() {
         repos.project.clone(),
     );
 
-    let process_use_case = DigestReportUseCase::new(repos, pool, compressor);
+    let process_use_case = DigestReportUseCase::new(repos, pool.clone(), compressor);
 
     let payload1 = r#"{"event_id": "e1", "release": "app@1.0.0", "platform": "python"}"#.as_bytes();
     let payload2 = r#"{"event_id": "e2", "release": "app@2.0.0", "platform": "rust"}"#.as_bytes();
@@ -182,14 +183,21 @@ fn test_process_multiple_events() {
     let (h2, c2) = compress_and_hash(payload2);
     let (h3, c3) = compress_and_hash(payload3);
 
-    ingest_use_case.execute(project_id, h1, c1, None).unwrap();
-    ingest_use_case.execute(project_id, h2, c2, None).unwrap();
-    ingest_use_case.execute(project_id, h3, c3, None).unwrap();
+    let mut conn = pool.get().unwrap();
+    ingest_use_case
+        .execute(&mut conn, project_id, h1, c1, None)
+        .unwrap();
+    ingest_use_case
+        .execute(&mut conn, project_id, h2, c2, None)
+        .unwrap();
+    ingest_use_case
+        .execute(&mut conn, project_id, h3, c3, None)
+        .unwrap();
 
-    assert_eq!(queue_repo.count_pending().unwrap(), 3);
+    assert_eq!(queue_repo.count_pending(&mut conn).unwrap(), 3);
 
     let processed = process_use_case.process_batch(10).unwrap();
     assert_eq!(processed, 3);
 
-    assert_eq!(queue_repo.count_pending().unwrap(), 0);
+    assert_eq!(queue_repo.count_pending(&mut conn).unwrap(), 0);
 }

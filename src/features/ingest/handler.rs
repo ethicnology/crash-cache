@@ -153,9 +153,23 @@ async fn store_report(
         "Received store report"
     );
 
+    // Get connection first
+    let mut conn = match state.pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Failed to get DB connection");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "Service temporarily unavailable"})),
+            );
+        }
+    };
+
     // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
-    if let Err(response) = validate_project_key(&state.project_repo, project_id, sentry_key) {
+    if let Err(response) =
+        validate_project_key(&state.project_repo, &mut conn, project_id, sentry_key)
+    {
         return response;
     }
 
@@ -171,10 +185,13 @@ async fn store_report(
         Err(response) => return response,
     };
 
-    match state
-        .ingest_use_case
-        .execute(project_id, hash.clone(), compressed, original_size)
-    {
+    match state.ingest_use_case.execute(
+        &mut conn,
+        project_id,
+        hash.clone(),
+        compressed,
+        original_size,
+    ) {
         Ok(_) => {
             info!(hash = %hash, "Report stored successfully");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
@@ -196,9 +213,23 @@ async fn envelope_report(
         "Received envelope report"
     );
 
+    // Get connection first
+    let mut conn = match state.pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "Failed to get DB connection");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "Service temporarily unavailable"})),
+            );
+        }
+    };
+
     // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
-    if let Err(response) = validate_project_key(&state.project_repo, project_id, sentry_key) {
+    if let Err(response) =
+        validate_project_key(&state.project_repo, &mut conn, project_id, sentry_key)
+    {
         return response;
     }
 
@@ -257,7 +288,7 @@ async fn envelope_report(
 
         for session_data in session_payloads {
             if let Some(session) = SentrySession::parse(session_data) {
-                match store_session(&state, project_id, &session) {
+                match store_session(&state, &mut conn, project_id, &session) {
                     Ok(sid_id) => {
                         sessions_stored += 1;
                         debug!(sid = %session.sid, sid_id = %sid_id, status = %session.status, "Session stored");
@@ -293,10 +324,13 @@ async fn envelope_report(
     }
 
     // Event envelope - archive it (sessions will be processed during digest)
-    match state
-        .ingest_use_case
-        .execute(project_id, hash.clone(), compressed, original_size)
-    {
+    match state.ingest_use_case.execute(
+        &mut conn,
+        project_id,
+        hash.clone(),
+        compressed,
+        original_size,
+    ) {
         Ok(_) => {
             info!(hash = %hash, "Envelope archived for digest");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
@@ -308,33 +342,24 @@ async fn envelope_report(
 /// Stores a session and returns the session_id for linking with reports
 fn store_session(
     state: &AppState,
+    conn: &mut crate::shared::persistence::DbConnection,
     project_id: i32,
     session: &SentrySession,
 ) -> Result<i32, DomainError> {
-    // Get a connection for all session operations
-    let mut conn = state
-        .pool
-        .get()
-        .map_err(|e| DomainError::Database(e.to_string()))?;
-
     // Get or create status ID
     let status_id = state
         .session_status_repo
-        .get_or_create(&mut conn, &session.status)?;
+        .get_or_create(conn, &session.status)?;
 
     // Get or create release ID (optional)
     let release_id = match &session.attrs.release {
-        Some(r) => Some(state.session_release_repo.get_or_create(&mut conn, r)?),
+        Some(r) => Some(state.session_release_repo.get_or_create(conn, r)?),
         None => None,
     };
 
     // Get or create environment ID (optional)
     let environment_id = match &session.attrs.environment {
-        Some(env) => Some(
-            state
-                .session_environment_repo
-                .get_or_create(&mut conn, env)?,
-        ),
+        Some(env) => Some(state.session_environment_repo.get_or_create(conn, env)?),
         None => None,
     };
 
@@ -353,7 +378,7 @@ fn store_session(
         environment_id,
     };
 
-    let session_id = state.session_repo.upsert(&mut conn, new_session)?;
+    let session_id = state.session_repo.upsert(conn, new_session)?;
 
     Ok(session_id)
 }
@@ -463,6 +488,7 @@ fn extract_sentry_key(headers: &HeaderMap, query: &SentryQueryParams) -> Option<
 
 fn validate_project_key(
     project_repo: &ProjectRepository,
+    conn: &mut crate::shared::persistence::DbConnection,
     project_id: i32,
     sentry_key: Option<String>,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
@@ -478,7 +504,7 @@ fn validate_project_key(
 
     debug!(project_id = %project_id, received_key = %key, "Validating public key");
 
-    match project_repo.validate_key(project_id, &key) {
+    match project_repo.validate_key(conn, project_id, &key) {
         Ok(true) => Ok(()),
         Ok(false) => {
             warn!(project_id = %project_id, received_key = %key, "Invalid public key");

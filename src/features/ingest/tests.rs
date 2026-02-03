@@ -124,24 +124,30 @@ fn test_ingest_stores_archive() {
     let original_size = payload.len() as i32;
     let (hash, compressed) = compress_and_hash(&payload);
 
+    let mut conn = pool.get().unwrap();
     let result_hash = use_case
-        .execute(project_id, hash.clone(), compressed, Some(original_size))
+        .execute(
+            &mut conn,
+            project_id,
+            hash.clone(),
+            compressed,
+            Some(original_size),
+        )
         .unwrap();
 
     assert_eq!(result_hash, hash);
 
-    let mut conn = pool.get().unwrap();
     let archive = archive_repo.find_by_hash(&mut conn, &hash).unwrap();
     assert!(archive.is_some());
     assert_eq!(archive.unwrap().original_size, Some(original_size));
 
-    let pending_count = queue_repo.count_pending().unwrap();
+    let pending_count = queue_repo.count_pending(&mut conn).unwrap();
     assert_eq!(pending_count, 1);
 }
 
 #[test]
 fn test_deduplication_same_hash_reuses_archive() {
-    let (repos, project_id, _pool) = setup_test_db();
+    let (repos, project_id, pool) = setup_test_db();
     let archive_repo = repos.archive.clone();
     let queue_repo = repos.queue.clone();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
@@ -149,34 +155,42 @@ fn test_deduplication_same_hash_reuses_archive() {
     let payload = sample_sentry_payload();
     let (hash, compressed) = compress_and_hash(&payload);
 
+    let mut conn = pool.get().unwrap();
     let hash1 = use_case
-        .execute(project_id, hash.clone(), compressed.clone(), None)
+        .execute(
+            &mut conn,
+            project_id,
+            hash.clone(),
+            compressed.clone(),
+            None,
+        )
         .unwrap();
     let hash2 = use_case
-        .execute(project_id, hash.clone(), compressed, None)
+        .execute(&mut conn, project_id, hash.clone(), compressed, None)
         .unwrap();
 
     assert_eq!(hash1, hash2);
 
-    let pending_count = queue_repo.count_pending().unwrap();
+    let pending_count = queue_repo.count_pending(&mut conn).unwrap();
     assert_eq!(pending_count, 1);
 
-    assert!(archive_repo.exists(&hash1).unwrap());
+    assert!(archive_repo.exists(&mut conn, &hash1).unwrap());
 }
 
 #[test]
 fn test_different_payloads_different_hashes() {
-    let (repos, project_id, _pool) = setup_test_db();
+    let (repos, project_id, pool) = setup_test_db();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
 
     let (hash1, compressed1) = compress_and_hash(b"payload one");
     let (hash2, compressed2) = compress_and_hash(b"payload two");
 
+    let mut conn = pool.get().unwrap();
     let result1 = use_case
-        .execute(project_id, hash1.clone(), compressed1, None)
+        .execute(&mut conn, project_id, hash1.clone(), compressed1, None)
         .unwrap();
     let result2 = use_case
-        .execute(project_id, hash2.clone(), compressed2, None)
+        .execute(&mut conn, project_id, hash2.clone(), compressed2, None)
         .unwrap();
 
     assert_ne!(result1, result2);
@@ -184,11 +198,12 @@ fn test_different_payloads_different_hashes() {
 
 #[test]
 fn test_unknown_project_returns_error() {
-    let (repos, _project_id, _pool) = setup_test_db();
+    let (repos, _project_id, pool) = setup_test_db();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
 
     let (hash, compressed) = compress_and_hash(&sample_sentry_payload());
-    let result = use_case.execute(999, hash, compressed, None);
+    let mut conn = pool.get().unwrap();
+    let result = use_case.execute(&mut conn, 999, hash, compressed, None);
 
     assert!(result.is_err());
 }

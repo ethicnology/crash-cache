@@ -64,9 +64,9 @@ pub struct Repositories {
 impl Repositories {
     pub fn new(pool: DbPool) -> Self {
         Self {
-            archive: ArchiveRepository::new(pool.clone()),
-            queue: QueueRepository::new(pool.clone()),
-            queue_error: QueueErrorRepository::new(pool.clone()),
+            archive: ArchiveRepository::new(),
+            queue: QueueRepository::new(),
+            queue_error: QueueErrorRepository::new(),
             project: ProjectRepository::new(pool.clone()),
             report: ReportRepository::new(pool.clone()),
             platform: UnwrapPlatformRepository::new(pool.clone()),

@@ -39,7 +39,11 @@ impl DigestReportUseCase {
     }
 
     pub fn process_batch(&self, limit: i32) -> Result<u32, DomainError> {
-        let items = self.repos.queue.dequeue_batch(limit)?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        let items = self.repos.queue.dequeue_batch(&mut conn, limit)?;
         let mut processed_count = 0u32;
 
         for item in items {
@@ -594,16 +598,18 @@ impl DigestReportUseCase {
             "Failed to process report, moving to error queue"
         );
 
-        // Record the error
-        self.repos
-            .queue_error
-            .record_error(&item.archive_hash, &err.to_string())?;
-
-        // Remove from processing queue
+        // Get connection for error handling
         let mut conn = self
             .pool
             .get()
             .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        // Record the error
+        self.repos
+            .queue_error
+            .record_error(&mut conn, &item.archive_hash, &err.to_string())?;
+
+        // Remove from processing queue
         self.repos.queue.remove(&mut conn, &item.archive_hash)?;
 
         Ok(())
