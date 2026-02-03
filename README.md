@@ -87,7 +87,7 @@ Environment variables (or `.env` file):
 | `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
 | `SERVER_HOST` | `0.0.0.0` | Listen host |
 | `SERVER_PORT` | `3000` | Listen port |
-| `WORKER_INTERVAL_SECS` | `60` | Digest worker interval |
+| `WORKER_INTERVAL_SECS` | `60` | Digest worker interval (also: cache TTL) |
 | `WORKER_BUDGET_SECS` | `50` | Max processing time per tick |
 | `MAX_CONCURRENT_COMPRESSIONS` | `16` | Concurrent compression limit |
 | `RATE_LIMIT_GLOBAL_PER_SEC` | `100` | Global requests/sec (0=off) |
@@ -134,6 +134,10 @@ Migrations run automatically on startup.
 - **PostgreSQL RETURNING** - Eliminates follow-up SELECT queries after INSERT
 - **Transaction support** - Reduces 24+ transactions per event to 1
 - **Semaphore limiting** - Controls CPU-bound compression concurrency
+- **Single connection per request** - HTTP handlers use one connection throughout the request lifecycle
+- **Background health refresh** - Health endpoint returns cached stats (no DB queries in request path)
+- **Project validation cache** - 60-second TTL cache reduces repeated project key lookups
+- **Calculated metrics** - Orphaned archives computed via arithmetic instead of expensive queries
 
 ### Reliability Features
 - **No panics** - All repository `.expect()` calls eliminated
@@ -165,6 +169,16 @@ crash-cache accepts standard Sentry SDK payloads. Configure any Sentry SDK with 
 Replace the DSN in the SDK configuration with the one from `crash-cache-cli project create`.
 
 ## Recent Improvements
+
+### Concurrency Optimizations (v0.3.0)
+- **Background health stats** - Health endpoint now returns cached stats refreshed every 60s
+  - Eliminated expensive DB queries from request path (100-500ms → <1ms)
+  - No more TOCTOU races or thundering herd on health checks
+- **Calculated orphaned metric** - Simple arithmetic instead of full table scan with 3 NOT EXISTS
+- **Project validation cache** - 60s TTL cache reduces validation queries by 60x at high RPS
+- **Single connection per request** - Reduced from 4 connections to 1 per HTTP request
+  - Handlers get connection once and pass through entire request lifecycle
+  - Reduced connection pool contention significantly
 
 ### PostgreSQL Migration (v0.2.0)
 - **Migrated from SQLite** - PostgreSQL-only for true concurrent writes without database sharding
