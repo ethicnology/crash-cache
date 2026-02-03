@@ -4,15 +4,19 @@ A lightweight, self-hosted Sentry-compatible error tracking backend. Drop-in rep
 
 ## Why
 
-Sentry's hosted service is expensive at scale. Self-hosting official Sentry requires significant infrastructure (Kafka, Redis, PostgreSQL, ClickHouse, etc.). crash-cache is a single binary with PostgreSQL that handles Sentry SDK payloads.
+Sentry's hosted service is expensive at scale. Self-hosting official Sentry requires significant infrastructure. crash-cache is a single binary with PostgreSQL that handles Sentry SDK payloads with minimal operational overhead.
 
 ## Features
 
 - **Sentry SDK compatible** - Works with existing Sentry client SDKs
 - **High throughput** - Async ingest with deferred processing; hash-based deduplication
+- **PostgreSQL optimized** - Native PostgreSQL support with RETURNING clauses and transactions
 - **Issue grouping** - Automatic fingerprinting based on in-app stack frames
-- **Session** - Supports Sentry Sessions (error count per session etc.)
-- **Rate limiting** - Configurable global, per-IP, and per-project limits
+- **Session tracking** - Full Sentry Session support (crashes, errors, release health)
+- **Rate limiting** - Configurable global, per-IP, and per-project limits with burst capacity
+- **Proper HTTP semantics** - Correct status codes (503 for DB issues, 422 for compression, etc.)
+- **Fully configurable** - All limits and timeouts configurable via environment variables
+- **Production-ready** - No panics, comprehensive error handling, transactional processing
 
 ## Architecture
 
@@ -120,13 +124,24 @@ PostgreSQL with normalized schema:
 
 Migrations run automatically on startup.
 
-## Performance Notes
+## Performance & Reliability
 
-- Ingest path avoids decompression when client sends gzip
-- Content-addressed storage deduplicates identical payloads
-- Dimension tables minimize storage for repetitive strings
-- Background worker processes in batches with time budget
-- Semaphore limits CPU-bound compression concurrency
+### Performance Optimizations
+- **Fast ingest path** - Avoids decompression when client sends gzip
+- **Content-addressed storage** - Deduplicates identical payloads by hash
+- **Dimension tables** - Minimizes storage for repetitive strings (OS, device, platform, etc.)
+- **Batch processing** - Worker processes events in configurable batches
+- **PostgreSQL RETURNING** - Eliminates follow-up SELECT queries after INSERT
+- **Transaction support** - Reduces 24+ transactions per event to 1
+- **Semaphore limiting** - Controls CPU-bound compression concurrency
+
+### Reliability Features
+- **No panics** - All repository `.expect()` calls eliminated
+- **Transactional processing** - Digest operations are atomic (all-or-nothing)
+- **Connection pooling** - Configurable pool size with timeout protection
+- **Proper error codes** - Database issues return 503, compression errors return 422
+- **Graceful degradation** - Health check returns 503 when DB unavailable
+- **Error propagation** - Session failures properly return HTTP errors
 
 ## SDK Integration
 
@@ -148,6 +163,29 @@ crash-cache accepts standard Sentry SDK payloads. Configure any Sentry SDK with 
 | Android | https://docs.sentry.io/platforms/android/ |
 
 Replace the DSN in the SDK configuration with the one from `crash-cache-cli project create`.
+
+## Recent Improvements
+
+### PostgreSQL Migration (v0.2.0)
+- **Migrated from SQLite** - PostgreSQL-only for true concurrent writes without database sharding
+  - SQLite's single-writer bottleneck would require sharding that breaks JOINs
+  - PostgreSQL provides native write concurrency while preserving relational integrity
+- **Transaction support** - Atomic digest processing with rollback on failure
+- **RETURNING clauses** - Optimized INSERT queries eliminate follow-up SELECTs
+- **Connection pooling** - Configurable pool with timeout protection
+
+### Error Handling Overhaul (v0.2.0)
+- **HTTP status codes** - Proper semantics (503, 422, 409, 400, etc.)
+- **No more panics** - All `.expect()` calls removed from critical paths
+- **Error propagation** - Session failures now return HTTP errors
+- **Health check** - Returns 503 when database is unavailable
+
+### Configuration Management (v0.2.0)
+- **7 new parameters** - Database pool, payload limits, batch sizes, rate limiting
+- **No defaults** - All configuration explicit in `.env` file
+- **Fully tunable** - Optimize for your workload and infrastructure
+
+See [CHANGELOG.md](CHANGELOG.md) for complete details.
 
 ## License
 
