@@ -37,14 +37,6 @@ impl ProjectRepository {
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        #[cfg(feature = "sqlite")]
-        let id: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
-            "last_insert_rowid()",
-        ))
-        .get_result(&mut conn)
-        .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         let id: i32 = project::table
             .select(project::id)
             .order(project::id.desc())

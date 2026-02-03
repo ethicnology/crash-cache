@@ -97,14 +97,6 @@ impl ReportRepository {
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        #[cfg(feature = "sqlite")]
-        let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
-            "last_insert_rowid()",
-        ))
-        .get_result::<i32>(&mut conn)
-        .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         let id = report::table
             .select(report::id)
             .order(report::id.desc())

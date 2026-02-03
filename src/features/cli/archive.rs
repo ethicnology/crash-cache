@@ -150,19 +150,11 @@ fn import(pool: &DbPool, input: Option<String>, skip_existing: bool) {
         };
 
         let result = if skip_existing {
-            #[cfg(feature = "sqlite")]
-            let res = diesel::insert_or_ignore_into(archive::table)
-                .values(&model)
-                .execute(&mut conn);
-
-            #[cfg(feature = "postgres")]
-            let res = diesel::insert_into(archive::table)
+            diesel::insert_into(archive::table)
                 .values(&model)
                 .on_conflict(archive::hash)
                 .do_nothing()
-                .execute(&mut conn);
-
-            res
+                .execute(&mut conn)
         } else {
             diesel::insert_into(archive::table)
                 .values(&model)

@@ -5,9 +5,7 @@ edition = "2024"
 license = "AGPL-3.0-only"
 
 [features]
-default = ["postgres"]
-sqlite = ["diesel/sqlite"]
-postgres = ["diesel/postgres"]
+default = []
 
 [[bin]]
 name = "crash-cache"
@@ -21,7 +19,7 @@ tower-http = { version = "0.6", features = ["trace", "cors"] }
 tower_governor = "0.8"
 governor = "0.10"
 
-diesel = { version = "2.3", default-features = false, features = ["r2d2", "chrono", "32-column-tables"] }
+diesel = { version = "2.3", default-features = false, features = ["postgres", "r2d2", "chrono", "32-column-tables"] }
 diesel_migrations = "2.3"
 
 serde = { version = "1", features = ["derive"] }

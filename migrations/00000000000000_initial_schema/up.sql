@@ -3,33 +3,33 @@
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS project (
-    id INTEGER PRIMARY KEY NOT NULL,
+    id SERIAL PRIMARY KEY,
     public_key TEXT UNIQUE,
     name TEXT,
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS archive (
     hash TEXT PRIMARY KEY NOT NULL,
     project_id INTEGER NOT NULL,
-    compressed_payload BLOB NOT NULL,
+    compressed_payload BYTEA NOT NULL,
     original_size INTEGER,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     FOREIGN KEY (project_id) REFERENCES project(id)
 );
 
 CREATE TABLE IF NOT EXISTS queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     archive_hash TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     FOREIGN KEY (archive_hash) REFERENCES archive(hash)
 );
 
 CREATE TABLE IF NOT EXISTS queue_error (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     archive_hash TEXT NOT NULL UNIQUE,
     error TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     FOREIGN KEY (archive_hash) REFERENCES archive(hash)
 );
 
@@ -38,22 +38,22 @@ CREATE TABLE IF NOT EXISTS queue_error (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS unwrap_session_status (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_session_release (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_session_environment (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS session (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL,
     sid TEXT NOT NULL,
     init INTEGER NOT NULL DEFAULT 0,
@@ -75,110 +75,110 @@ CREATE TABLE IF NOT EXISTS session (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS unwrap_platform (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_environment (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_connection_type (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_orientation (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_os_name (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_os_version (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_manufacturer (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_brand (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_model (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_chipset (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_locale_code (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_timezone (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_app_name (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_app_version (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_app_build (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_user (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_exception_type (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     value TEXT UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_device_specs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     screen_width INTEGER,
     screen_height INTEGER,
     screen_density REAL,
     screen_dpi INTEGER,
     processor_count INTEGER,
-    memory_size INTEGER,
+    memory_size BIGINT,
     archs TEXT,
     UNIQUE(screen_width, screen_height, screen_density, screen_dpi, processor_count, memory_size, archs)
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_exception_message (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     hash TEXT UNIQUE NOT NULL,
     value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS unwrap_stacktrace (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     hash TEXT UNIQUE NOT NULL,
     fingerprint_hash TEXT,
     frames_json TEXT NOT NULL
@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS unwrap_stacktrace (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS issue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     fingerprint_hash TEXT UNIQUE NOT NULL,
     exception_type_id INTEGER,
     title TEXT,
@@ -204,10 +204,10 @@ CREATE TABLE IF NOT EXISTS issue (
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS report (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     event_id TEXT UNIQUE NOT NULL,
     archive_hash TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
+    timestamp BIGINT NOT NULL,
     received_at TIMESTAMP NOT NULL,
 
     project_id INTEGER NOT NULL,
@@ -286,13 +286,13 @@ CREATE INDEX IF NOT EXISTS idx_report_session ON report(session_id);
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS bucket_rate_limit_global (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     bucket_start TIMESTAMP NOT NULL UNIQUE,
     hit_count INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS bucket_rate_limit_dsn (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     dsn TEXT NOT NULL,
     project_id INTEGER,
     bucket_start TIMESTAMP NOT NULL,
@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS bucket_rate_limit_dsn (
 );
 
 CREATE TABLE IF NOT EXISTS bucket_rate_limit_subnet (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     subnet TEXT NOT NULL,
     bucket_start TIMESTAMP NOT NULL,
     hit_count INTEGER NOT NULL DEFAULT 1,
@@ -309,7 +309,7 @@ CREATE TABLE IF NOT EXISTS bucket_rate_limit_subnet (
 );
 
 CREATE TABLE IF NOT EXISTS bucket_request_latency (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    id SERIAL PRIMARY KEY,
     endpoint TEXT NOT NULL,
     bucket_start TIMESTAMP NOT NULL,
     request_count INTEGER NOT NULL DEFAULT 0,

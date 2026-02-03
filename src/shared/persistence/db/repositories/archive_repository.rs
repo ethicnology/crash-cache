@@ -30,13 +30,6 @@ impl ArchiveRepository {
             created_at: arch.created_at.naive_utc(),
         };
 
-        #[cfg(feature = "sqlite")]
-        diesel::insert_or_ignore_into(archive::table)
-            .values(&model)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         diesel::insert_into(archive::table)
             .values(&model)
             .on_conflict(archive::hash)

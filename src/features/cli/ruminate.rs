@@ -85,40 +85,18 @@ pub fn handle(pool: &DbPool, yes: bool) {
 
     println!("\n⏳ Resetting auto-increment counters...");
 
-    #[cfg(feature = "sqlite")]
-    {
-        for table in TABLES_TO_CLEAR {
-            let _ = sql_query(format!(
-                "DELETE FROM sqlite_sequence WHERE name = '{}'",
-                table
-            ))
-            .execute(&mut conn);
-        }
-    }
-
-    #[cfg(feature = "postgres")]
-    {
-        for table in TABLES_TO_CLEAR {
-            let _ = sql_query(format!(
-                "ALTER SEQUENCE IF EXISTS {}_id_seq RESTART WITH 1",
-                table
-            ))
-            .execute(&mut conn);
-        }
+    for table in TABLES_TO_CLEAR {
+        let _ = sql_query(format!(
+            "ALTER SEQUENCE IF EXISTS {}_id_seq RESTART WITH 1",
+            table
+        ))
+        .execute(&mut conn);
     }
 
     println!("   ✓ Sequences reset");
 
     println!("\n⏳ Re-queuing archives...");
 
-    #[cfg(feature = "sqlite")]
-    let result = sql_query(
-        "INSERT INTO queue (archive_hash, created_at)
-         SELECT hash, datetime('now') FROM archive",
-    )
-    .execute(&mut conn);
-
-    #[cfg(feature = "postgres")]
     let result = sql_query(
         "INSERT INTO queue (archive_hash, created_at)
          SELECT hash, NOW() FROM archive",

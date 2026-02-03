@@ -8,18 +8,10 @@ use crate::shared::persistence::{Repositories, establish_connection_pool, run_mi
 use super::DigestReportUseCase;
 
 fn test_database_url() -> String {
-    #[cfg(feature = "sqlite")]
-    {
-        ":memory:".to_string()
-    }
-    #[cfg(feature = "postgres")]
-    {
-        std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:test@localhost/crash_cache_test".to_string())
-    }
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:test@localhost/crash_cache_test".to_string())
 }
 
-#[cfg(feature = "postgres")]
 fn clean_test_db(pool: &crate::shared::persistence::DbPool) {
     use diesel::prelude::*;
     let mut conn = pool.get().expect("Failed to get connection");
@@ -67,7 +59,6 @@ fn clean_test_db(pool: &crate::shared::persistence::DbPool) {
 fn setup_test_db() -> (Repositories, i32) {
     let pool = establish_connection_pool(&test_database_url());
     run_migrations(&pool);
-    #[cfg(feature = "postgres")]
     clean_test_db(&pool);
     let repos = Repositories::new(pool);
     let project_id = repos.project.create(None, None).unwrap();

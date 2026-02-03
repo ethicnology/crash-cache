@@ -83,13 +83,6 @@ impl DeviceSpecsRepository {
             .values(&new_record)
             .execute(&mut conn)?;
 
-        #[cfg(feature = "sqlite")]
-        let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
-            "last_insert_rowid()",
-        ))
-        .get_result::<i32>(&mut conn)?;
-
-        #[cfg(feature = "postgres")]
         let id = unwrap_device_specs::table
             .select(unwrap_device_specs::id)
             .order(unwrap_device_specs::id.desc())

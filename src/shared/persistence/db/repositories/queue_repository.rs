@@ -29,13 +29,6 @@ impl QueueRepository {
             created_at: item.created_at.naive_utc(),
         };
 
-        #[cfg(feature = "sqlite")]
-        let rows = diesel::insert_or_ignore_into(queue::table)
-            .values(&model)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         let rows = diesel::insert_into(queue::table)
             .values(&model)
             .on_conflict(queue::archive_hash)
@@ -52,14 +45,6 @@ impl QueueRepository {
             return Ok(existing);
         }
 
-        #[cfg(feature = "sqlite")]
-        let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
-            "last_insert_rowid()",
-        ))
-        .get_result::<i32>(&mut conn)
-        .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         let id = queue::table
             .select(queue::id)
             .order(queue::id.desc())
@@ -141,14 +126,7 @@ impl QueueErrorRepository {
             created_at: Utc::now().naive_utc(),
         };
 
-        // Use insert_or_ignore to handle duplicates gracefully
-        #[cfg(feature = "sqlite")]
-        let rows = diesel::insert_or_ignore_into(queue_error::table)
-            .values(&model)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
+        // Use insert with conflict handling to handle duplicates gracefully
         let rows = diesel::insert_into(queue_error::table)
             .values(&model)
             .on_conflict(queue_error::archive_hash)
@@ -174,14 +152,6 @@ impl QueueErrorRepository {
             return Ok(existing);
         }
 
-        #[cfg(feature = "sqlite")]
-        let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
-            "last_insert_rowid()",
-        ))
-        .get_result::<i32>(&mut conn)
-        .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        #[cfg(feature = "postgres")]
         let id = queue_error::table
             .select(queue_error::id)
             .order(queue_error::id.desc())
