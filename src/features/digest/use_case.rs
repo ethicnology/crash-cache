@@ -4,7 +4,7 @@ use tracing::{debug, error, info, warn};
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryReport};
 use crate::shared::parser::{Envelope, SentrySession};
-use crate::shared::persistence::sqlite::models::NewSessionModel;
+use crate::shared::persistence::db::models::NewSessionModel;
 use crate::shared::persistence::{DeviceSpecsParams, NewReport, Repositories};
 
 // Type aliases for complex return types

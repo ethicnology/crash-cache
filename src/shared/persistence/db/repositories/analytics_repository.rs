@@ -1,22 +1,22 @@
 use chrono::{NaiveDateTime, Utc, Timelike};
+use super::DbPool;
 use diesel::prelude::*;
 
-use crate::shared::persistence::sqlite::schema::{
+use crate::shared::persistence::db::schema::{
     bucket_rate_limit_global, bucket_rate_limit_dsn, bucket_rate_limit_subnet, bucket_request_latency,
 };
-use crate::shared::persistence::sqlite::models::{
+use crate::shared::persistence::db::models::{
     NewBucketRateLimitGlobalModel, NewBucketRateLimitDsnModel,
     NewBucketRateLimitSubnetModel, NewBucketRequestLatencyModel,
 };
-use super::super::SqlitePool;
 
 #[derive(Clone)]
 pub struct AnalyticsRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl AnalyticsRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 

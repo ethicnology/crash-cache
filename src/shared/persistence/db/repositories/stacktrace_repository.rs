@@ -1,19 +1,18 @@
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
+use super::DbPool;
 
-use crate::shared::persistence::sqlite::models::{NewUnwrapStacktraceModel, UnwrapStacktraceModel};
-use crate::shared::persistence::sqlite::schema::unwrap_stacktrace;
 
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::{NewUnwrapStacktraceModel, UnwrapStacktraceModel};
+use crate::shared::persistence::db::schema::unwrap_stacktrace;
+
 
 #[derive(Clone)]
 pub struct StacktraceRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl StacktraceRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 

@@ -1,11 +1,8 @@
+use super::DbPool;
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
 
-use crate::shared::persistence::sqlite::models::{UnwrapDeviceSpecsModel, NewUnwrapDeviceSpecsModel};
-use crate::shared::persistence::sqlite::schema::unwrap_device_specs;
-
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::{NewUnwrapDeviceSpecsModel, UnwrapDeviceSpecsModel};
+use crate::shared::persistence::db::schema::unwrap_device_specs;
 
 /// Parameters for device specifications lookup/creation
 #[derive(Default, Clone)]
@@ -21,11 +18,11 @@ pub struct DeviceSpecsParams {
 
 #[derive(Clone)]
 pub struct DeviceSpecsRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl DeviceSpecsRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -86,15 +83,25 @@ impl DeviceSpecsRepository {
             .values(&new_record)
             .execute(&mut conn)?;
 
+        #[cfg(feature = "sqlite")]
         let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
         ))
         .get_result::<i32>(&mut conn)?;
 
+        #[cfg(feature = "postgres")]
+        let id = unwrap_device_specs::table
+            .select(unwrap_device_specs::id)
+            .order(unwrap_device_specs::id.desc())
+            .first::<i32>(&mut conn)?;
+
         Ok(id)
     }
 
-    pub fn find_by_id(&self, id: i32) -> Result<Option<UnwrapDeviceSpecsModel>, diesel::result::Error> {
+    pub fn find_by_id(
+        &self,
+        id: i32,
+    ) -> Result<Option<UnwrapDeviceSpecsModel>, diesel::result::Error> {
         let mut conn = self.pool.get().expect("Failed to get connection");
 
         unwrap_device_specs::table

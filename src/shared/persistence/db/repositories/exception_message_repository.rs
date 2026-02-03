@@ -1,19 +1,18 @@
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
+use super::DbPool;
 
-use crate::shared::persistence::sqlite::models::{UnwrapExceptionMessageModel, NewUnwrapExceptionMessageModel};
-use crate::shared::persistence::sqlite::schema::unwrap_exception_message;
 
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::{UnwrapExceptionMessageModel, NewUnwrapExceptionMessageModel};
+use crate::shared::persistence::db::schema::unwrap_exception_message;
+
 
 #[derive(Clone)]
 pub struct ExceptionMessageRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl ExceptionMessageRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 

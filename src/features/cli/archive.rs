@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 
-use crate::shared::persistence::SqlitePool;
-use crate::shared::persistence::sqlite::models::ArchiveModel;
-use crate::shared::persistence::sqlite::schema::archive;
+use crate::shared::persistence::DbPool;
+use crate::shared::persistence::db::models::ArchiveModel;
+use crate::shared::persistence::db::schema::archive;
 
 #[derive(Subcommand)]
 pub enum ArchiveCommand {
@@ -42,7 +42,7 @@ struct ArchiveRecord {
     created_at: String,
 }
 
-pub fn handle(command: ArchiveCommand, pool: &SqlitePool) {
+pub fn handle(command: ArchiveCommand, pool: &DbPool) {
     match command {
         ArchiveCommand::Export { output } => export(pool, output),
         ArchiveCommand::Import {
@@ -53,7 +53,7 @@ pub fn handle(command: ArchiveCommand, pool: &SqlitePool) {
     }
 }
 
-fn export(pool: &SqlitePool, output: Option<String>) {
+fn export(pool: &DbPool, output: Option<String>) {
     let mut conn = pool.get().expect("Failed to get connection");
 
     let archives: Vec<ArchiveModel> = archive::table
@@ -89,7 +89,7 @@ fn export(pool: &SqlitePool, output: Option<String>) {
     eprintln!("Exported {} archives", count);
 }
 
-fn import(pool: &SqlitePool, input: Option<String>, skip_existing: bool) {
+fn import(pool: &DbPool, input: Option<String>, skip_existing: bool) {
     let mut conn = pool.get().expect("Failed to get connection");
 
     let reader: Box<dyn BufRead> = match input {
@@ -150,9 +150,19 @@ fn import(pool: &SqlitePool, input: Option<String>, skip_existing: bool) {
         };
 
         let result = if skip_existing {
-            diesel::insert_or_ignore_into(archive::table)
+            #[cfg(feature = "sqlite")]
+            let res = diesel::insert_or_ignore_into(archive::table)
                 .values(&model)
-                .execute(&mut conn)
+                .execute(&mut conn);
+
+            #[cfg(feature = "postgres")]
+            let res = diesel::insert_into(archive::table)
+                .values(&model)
+                .on_conflict(archive::hash)
+                .do_nothing()
+                .execute(&mut conn);
+
+            res
         } else {
             diesel::insert_into(archive::table)
                 .values(&model)
@@ -175,7 +185,7 @@ fn import(pool: &SqlitePool, input: Option<String>, skip_existing: bool) {
     );
 }
 
-fn view(pool: &SqlitePool, hash: String) {
+fn view(pool: &DbPool, hash: String) {
     use flate2::read::GzDecoder;
     use std::io::Read;
 

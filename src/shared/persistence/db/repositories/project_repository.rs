@@ -1,18 +1,18 @@
+use super::DbPool;
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
 use crate::shared::domain::{DomainError, Project};
-use crate::shared::persistence::sqlite::models::{NewProjectModel, ProjectModel};
-use crate::shared::persistence::sqlite::schema::project;
-use crate::shared::persistence::SqlitePool;
+use crate::shared::persistence::db::models::{NewProjectModel, ProjectModel};
+use crate::shared::persistence::db::schema::project;
 
 #[derive(Clone)]
 pub struct ProjectRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl ProjectRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -37,11 +37,19 @@ impl ProjectRepository {
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
+        #[cfg(feature = "sqlite")]
         let id: i32 = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
         ))
         .get_result(&mut conn)
         .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let id: i32 = project::table
+            .select(project::id)
+            .order(project::id.desc())
+            .first(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -85,7 +93,7 @@ impl ProjectRepository {
     /// Returns Ok(true) if valid, Ok(false) if invalid key, Err if project not found.
     pub fn validate_key(&self, id: i32, public_key: &str) -> Result<bool, DomainError> {
         let project = self.find_by_id(id)?;
-        
+
         match project {
             Some(p) => match p.public_key {
                 Some(stored_key) => Ok(stored_key == public_key),

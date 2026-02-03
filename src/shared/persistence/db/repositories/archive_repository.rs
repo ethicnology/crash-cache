@@ -1,18 +1,18 @@
+use super::DbPool;
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
 use crate::shared::domain::{Archive, DomainError};
-use crate::shared::persistence::sqlite::models::ArchiveModel;
-use crate::shared::persistence::sqlite::schema::archive;
-use crate::shared::persistence::SqlitePool;
+use crate::shared::persistence::db::models::ArchiveModel;
+use crate::shared::persistence::db::schema::archive;
 
 #[derive(Clone)]
 pub struct ArchiveRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl ArchiveRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -30,8 +30,17 @@ impl ArchiveRepository {
             created_at: arch.created_at.naive_utc(),
         };
 
+        #[cfg(feature = "sqlite")]
         diesel::insert_or_ignore_into(archive::table)
             .values(&model)
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        diesel::insert_into(archive::table)
+            .values(&model)
+            .on_conflict(archive::hash)
+            .do_nothing()
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 

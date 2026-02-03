@@ -1,8 +1,8 @@
-pub mod sqlite;
+pub mod db;
 
-pub use sqlite::{
-    establish_connection_pool, run_migrations, AnalyticsRepository, ArchiveRepository,
-    DeviceSpecsParams, NewReport, ProjectRepository, QueueRepository, QueueErrorRepository,
-    Repositories, SessionRepository, SqlitePool, UnwrapSessionEnvironmentRepository,
-    UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
+pub use db::{
+    AnalyticsRepository, ArchiveRepository, DbConnection, DbPool, DeviceSpecsParams, NewReport,
+    ProjectRepository, QueueErrorRepository, QueueRepository, Repositories, SessionRepository,
+    SqlitePool, UnwrapSessionEnvironmentRepository, UnwrapSessionReleaseRepository,
+    UnwrapSessionStatusRepository, establish_connection_pool, run_migrations,
 };

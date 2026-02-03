@@ -1,18 +1,20 @@
+use super::DbPool;
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
-use crate::shared::domain::{DomainError, QueueItem, QueueError};
-use crate::shared::persistence::sqlite::models::{NewQueueModel, QueueModel, NewQueueErrorModel, QueueErrorModel};
-use crate::shared::persistence::sqlite::schema::{queue, queue_error};
-use crate::shared::persistence::SqlitePool;
+use crate::shared::domain::{DomainError, QueueError, QueueItem};
+use crate::shared::persistence::db::models::{
+    NewQueueErrorModel, NewQueueModel, QueueErrorModel, QueueModel,
+};
+use crate::shared::persistence::db::schema::{queue, queue_error};
 
 #[derive(Clone)]
 pub struct QueueRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl QueueRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -27,8 +29,17 @@ impl QueueRepository {
             created_at: item.created_at.naive_utc(),
         };
 
+        #[cfg(feature = "sqlite")]
         let rows = diesel::insert_or_ignore_into(queue::table)
             .values(&model)
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let rows = diesel::insert_into(queue::table)
+            .values(&model)
+            .on_conflict(queue::archive_hash)
+            .do_nothing()
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
@@ -41,11 +52,19 @@ impl QueueRepository {
             return Ok(existing);
         }
 
+        #[cfg(feature = "sqlite")]
         let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
         ))
         .get_result::<i32>(&mut conn)
         .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let id = queue::table
+            .select(queue::id)
+            .order(queue::id.desc())
+            .first::<i32>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
     }
@@ -102,11 +121,11 @@ impl QueueRepository {
 
 #[derive(Clone)]
 pub struct QueueErrorRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl QueueErrorRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -123,8 +142,17 @@ impl QueueErrorRepository {
         };
 
         // Use insert_or_ignore to handle duplicates gracefully
+        #[cfg(feature = "sqlite")]
         let rows = diesel::insert_or_ignore_into(queue_error::table)
             .values(&model)
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let rows = diesel::insert_into(queue_error::table)
+            .values(&model)
+            .on_conflict(queue_error::archive_hash)
+            .do_nothing()
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
@@ -146,11 +174,19 @@ impl QueueErrorRepository {
             return Ok(existing);
         }
 
+        #[cfg(feature = "sqlite")]
         let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
         ))
         .get_result::<i32>(&mut conn)
         .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let id = queue_error::table
+            .select(queue_error::id)
+            .order(queue_error::id.desc())
+            .first::<i32>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
     }

@@ -1,17 +1,14 @@
+use super::DbPool;
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
 
 use crate::shared::domain::DomainError;
-use crate::shared::persistence::sqlite::models::{NewReportModel, ReportModel};
-use crate::shared::persistence::sqlite::schema::report;
-
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::{NewReportModel, ReportModel};
+use crate::shared::persistence::db::schema::report;
 
 #[derive(Clone)]
 pub struct ReportRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -45,7 +42,7 @@ pub struct NewReport {
 }
 
 impl ReportRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -100,11 +97,19 @@ impl ReportRepository {
             .execute(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
+        #[cfg(feature = "sqlite")]
         let id = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
             "last_insert_rowid()",
         ))
         .get_result::<i32>(&mut conn)
         .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        #[cfg(feature = "postgres")]
+        let id = report::table
+            .select(report::id)
+            .order(report::id.desc())
+            .first::<i32>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
     }

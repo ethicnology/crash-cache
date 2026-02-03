@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use diesel::prelude::*;
 use diesel::sql_query;
 
-use crate::shared::persistence::SqlitePool;
+use crate::shared::persistence::DbPool;
 
 const TABLES_TO_CLEAR: &[&str] = &[
     "report",
@@ -42,7 +42,7 @@ const TABLES_TO_CLEAR: &[&str] = &[
     "bucket_request_latency",
 ];
 
-pub fn handle(pool: &SqlitePool, yes: bool) {
+pub fn handle(pool: &DbPool, yes: bool) {
     let mut conn = pool.get().expect("Failed to get connection");
 
     let archive_count: i64 = sql_query("SELECT COUNT(*) as count FROM archive")
@@ -85,17 +85,43 @@ pub fn handle(pool: &SqlitePool, yes: bool) {
 
     println!("\n⏳ Resetting auto-increment counters...");
 
-    for table in TABLES_TO_CLEAR {
-        let _ = sql_query(format!("DELETE FROM sqlite_sequence WHERE name = '{}'", table))
+    #[cfg(feature = "sqlite")]
+    {
+        for table in TABLES_TO_CLEAR {
+            let _ = sql_query(format!(
+                "DELETE FROM sqlite_sequence WHERE name = '{}'",
+                table
+            ))
             .execute(&mut conn);
+        }
     }
+
+    #[cfg(feature = "postgres")]
+    {
+        for table in TABLES_TO_CLEAR {
+            let _ = sql_query(format!(
+                "ALTER SEQUENCE IF EXISTS {}_id_seq RESTART WITH 1",
+                table
+            ))
+            .execute(&mut conn);
+        }
+    }
+
     println!("   ✓ Sequences reset");
 
     println!("\n⏳ Re-queuing archives...");
 
+    #[cfg(feature = "sqlite")]
     let result = sql_query(
         "INSERT INTO queue (archive_hash, created_at)
          SELECT hash, datetime('now') FROM archive",
+    )
+    .execute(&mut conn);
+
+    #[cfg(feature = "postgres")]
+    let result = sql_query(
+        "INSERT INTO queue (archive_hash, created_at)
+         SELECT hash, NOW() FROM archive",
     )
     .execute(&mut conn);
 

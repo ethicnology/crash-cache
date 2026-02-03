@@ -1,20 +1,19 @@
 use chrono::Utc;
+use super::DbPool;
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
 
-use crate::shared::persistence::sqlite::models::{IssueModel, NewIssueModel};
-use crate::shared::persistence::sqlite::schema::issue;
 
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::{IssueModel, NewIssueModel};
+use crate::shared::persistence::db::schema::issue;
+
 
 #[derive(Clone)]
 pub struct IssueRepository {
-    pool: SqlitePool,
+    pool: DbPool,
 }
 
 impl IssueRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 

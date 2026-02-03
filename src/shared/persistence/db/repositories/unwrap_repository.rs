@@ -1,21 +1,20 @@
 use diesel::prelude::*;
-use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::sqlite::SqliteConnection;
+use super::DbPool;
 
-use crate::shared::persistence::sqlite::models::*;
-use crate::shared::persistence::sqlite::schema::*;
 
-type SqlitePool = Pool<ConnectionManager<SqliteConnection>>;
+use crate::shared::persistence::db::models::*;
+use crate::shared::persistence::db::schema::*;
+
 
 macro_rules! impl_unwrap_repository {
     ($repo_name:ident, $table:ident, $model:ident, $new_model:ident) => {
         #[derive(Clone)]
         pub struct $repo_name {
-            pool: SqlitePool,
+            pool: DbPool,
         }
 
         impl $repo_name {
-            pub fn new(pool: SqlitePool) -> Self {
+            pub fn new(pool: DbPool) -> Self {
                 Self { pool }
             }
 

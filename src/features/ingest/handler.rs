@@ -1,14 +1,14 @@
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use diesel::prelude::*;
 use diesel::sql_query;
-use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -20,11 +20,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::shared::domain::DomainError;
 use crate::shared::parser::{Envelope, SentrySession};
-use crate::shared::persistence::sqlite::models::NewSessionModel;
+use crate::shared::persistence::db::models::NewSessionModel;
 use crate::shared::persistence::{
-    ProjectRepository, SessionRepository, SqlitePool,
-    UnwrapSessionEnvironmentRepository, UnwrapSessionReleaseRepository,
-    UnwrapSessionStatusRepository,
+    DbPool, ProjectRepository, SessionRepository, UnwrapSessionEnvironmentRepository,
+    UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
 };
 
 use super::IngestReportUseCase;
@@ -50,7 +49,7 @@ pub struct HealthStats {
 pub struct AppState {
     pub ingest_use_case: IngestReportUseCase,
     pub compression_semaphore: Arc<Semaphore>,
-    pub pool: SqlitePool,
+    pub pool: DbPool,
     pub project_repo: ProjectRepository,
     pub health_cache: Arc<RwLock<HealthStats>>,
     pub health_cache_ttl: Duration,
@@ -98,12 +97,16 @@ async fn store_report(
         return response;
     }
 
-    let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
-        Ok(result) => result,
-        Err(response) => return response,
-    };
+    let (hash, compressed, original_size) =
+        match prepare_payload(&headers, &body, &state.compression_semaphore).await {
+            Ok(result) => result,
+            Err(response) => return response,
+        };
 
-    match state.ingest_use_case.execute(project_id, hash.clone(), compressed, original_size) {
+    match state
+        .ingest_use_case
+        .execute(project_id, hash.clone(), compressed, original_size)
+    {
         Ok(_) => {
             info!(hash = %hash, "Report stored successfully");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
@@ -144,10 +147,11 @@ async fn envelope_report(
         return response;
     }
 
-    let (hash, compressed, original_size) = match prepare_payload(&headers, &body, &state.compression_semaphore).await {
-        Ok(result) => result,
-        Err(response) => return response,
-    };
+    let (hash, compressed, original_size) =
+        match prepare_payload(&headers, &body, &state.compression_semaphore).await {
+            Ok(result) => result,
+            Err(response) => return response,
+        };
 
     let decompressed = match decompress(&compressed) {
         Ok(d) => d,
@@ -174,7 +178,11 @@ async fn envelope_report(
     info!(
         "Envelope has {} items: {:?}",
         envelope.items.len(),
-        envelope.items.iter().map(|i| (&i.header.item_type, i.payload.len())).collect::<Vec<_>>()
+        envelope
+            .items
+            .iter()
+            .map(|i| (&i.header.item_type, i.payload.len()))
+            .collect::<Vec<_>>()
     );
 
     // Check for event payload
@@ -199,7 +207,10 @@ async fn envelope_report(
         }
         if sessions_stored > 0 {
             info!(sessions_stored = %sessions_stored, "Session-only envelope processed");
-            return (StatusCode::OK, Json(serde_json::json!({"sessions": sessions_stored})));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({"sessions": sessions_stored})),
+            );
         }
         warn!("No event or session found in envelope");
         return (
@@ -209,7 +220,10 @@ async fn envelope_report(
     }
 
     // Event envelope - archive it (sessions will be processed during digest)
-    match state.ingest_use_case.execute(project_id, hash.clone(), compressed, original_size) {
+    match state
+        .ingest_use_case
+        .execute(project_id, hash.clone(), compressed, original_size)
+    {
         Ok(_) => {
             info!(hash = %hash, "Envelope archived for digest");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
@@ -232,7 +246,11 @@ async fn envelope_report(
 }
 
 /// Stores a session and returns the session_id for linking with reports
-fn store_session(state: &AppState, project_id: i32, session: &SentrySession) -> Result<i32, String> {
+fn store_session(
+    state: &AppState,
+    project_id: i32,
+    session: &SentrySession,
+) -> Result<i32, String> {
     // Get or create status ID
     let status_id = state
         .session_status_repo
@@ -266,7 +284,10 @@ fn store_session(state: &AppState, project_id: i32, session: &SentrySession) -> 
         sid: session.sid.clone(),
         init: if session.init { 1 } else { 0 },
         started_at: session.started.clone(),
-        timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+        timestamp: session
+            .timestamp
+            .clone()
+            .unwrap_or_else(|| session.started.clone()),
         errors: session.errors,
         status_id,
         release_id,
@@ -428,7 +449,7 @@ fn validate_project_key(
 
 async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let stats = get_cached_stats(&state);
-    
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "crash-cache",
@@ -487,11 +508,11 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
         "SELECT COUNT(*) as c FROM archive a
          WHERE NOT EXISTS (SELECT 1 FROM report r WHERE r.archive_hash = a.hash)
          AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)
-         AND NOT EXISTS (SELECT 1 FROM queue_error e WHERE e.archive_hash = a.hash)"
+         AND NOT EXISTS (SELECT 1 FROM queue_error e WHERE e.archive_hash = a.hash)",
     )
-        .get_result::<Count>(&mut conn)
-        .map(|r| r.c)
-        .unwrap_or(0);
+    .get_result::<Count>(&mut conn)
+    .map(|r| r.c)
+    .unwrap_or(0);
 
     let new_stats = HealthStats {
         archives,

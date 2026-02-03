@@ -5,7 +5,7 @@ edition = "2024"
 license = "AGPL-3.0-only"
 
 [features]
-default = ["sqlite"]
+default = ["postgres"]
 sqlite = ["diesel/sqlite"]
 postgres = ["diesel/postgres"]
 

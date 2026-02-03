@@ -22,7 +22,7 @@ pub use report_repository::{NewReport, ReportRepository};
 pub use session_repository::*;
 pub use stacktrace_repository::StacktraceRepository;
 
-use super::SqlitePool;
+use super::DbPool;
 
 #[derive(Clone)]
 pub struct Repositories {
@@ -62,7 +62,7 @@ pub struct Repositories {
 }
 
 impl Repositories {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self {
             archive: ArchiveRepository::new(pool.clone()),
             queue: QueueRepository::new(pool.clone()),
