@@ -5,29 +5,14 @@ use crate::shared::persistence::db::schema::unwrap_stacktrace;
 use diesel::prelude::*;
 
 #[derive(Clone)]
-pub struct StacktraceRepository {
-    pool: DbPool,
-}
+pub struct StacktraceRepository {}
 
 impl StacktraceRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(_pool: DbPool) -> Self {
+        Self {}
     }
 
     pub fn get_or_create(
-        &self,
-        hash: &str,
-        fingerprint_hash: Option<String>,
-        frames_json: &str,
-    ) -> Result<i32, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.get_or_create_with_conn(&mut conn, hash, fingerprint_hash, frames_json)
-    }
-
-    pub fn get_or_create_with_conn(
         &self,
         conn: &mut DbConnection,
         hash: &str,
@@ -59,15 +44,7 @@ impl StacktraceRepository {
         Ok(id)
     }
 
-    pub fn find_by_hash(&self, hash: &str) -> Result<Option<UnwrapStacktraceModel>, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.find_by_hash_with_conn(&mut conn, hash)
-    }
-
-    pub fn find_by_hash_with_conn(
+    pub fn find_by_hash(
         &self,
         conn: &mut DbConnection,
         hash: &str,
@@ -81,17 +58,6 @@ impl StacktraceRepository {
     }
 
     pub fn find_by_fingerprint(
-        &self,
-        fingerprint_hash: &str,
-    ) -> Result<Vec<UnwrapStacktraceModel>, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.find_by_fingerprint_with_conn(&mut conn, fingerprint_hash)
-    }
-
-    pub fn find_by_fingerprint_with_conn(
         &self,
         conn: &mut DbConnection,
         fingerprint_hash: &str,

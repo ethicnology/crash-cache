@@ -311,18 +311,30 @@ fn store_session(
     project_id: i32,
     session: &SentrySession,
 ) -> Result<i32, DomainError> {
+    // Get a connection for all session operations
+    let mut conn = state
+        .pool
+        .get()
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
     // Get or create status ID
-    let status_id = state.session_status_repo.get_or_create(&session.status)?;
+    let status_id = state
+        .session_status_repo
+        .get_or_create(&mut conn, &session.status)?;
 
     // Get or create release ID (optional)
     let release_id = match &session.attrs.release {
-        Some(r) => Some(state.session_release_repo.get_or_create(r)?),
+        Some(r) => Some(state.session_release_repo.get_or_create(&mut conn, r)?),
         None => None,
     };
 
     // Get or create environment ID (optional)
     let environment_id = match &session.attrs.environment {
-        Some(env) => Some(state.session_environment_repo.get_or_create(env)?),
+        Some(env) => Some(
+            state
+                .session_environment_repo
+                .get_or_create(&mut conn, env)?,
+        ),
         None => None,
     };
 
@@ -341,7 +353,7 @@ fn store_session(
         environment_id,
     };
 
-    let session_id = state.session_repo.upsert(new_session)?;
+    let session_id = state.session_repo.upsert(&mut conn, new_session)?;
 
     Ok(session_id)
 }

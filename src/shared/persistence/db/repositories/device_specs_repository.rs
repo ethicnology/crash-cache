@@ -17,24 +17,14 @@ pub struct DeviceSpecsParams {
 }
 
 #[derive(Clone)]
-pub struct DeviceSpecsRepository {
-    pool: DbPool,
-}
+pub struct DeviceSpecsRepository {}
 
 impl DeviceSpecsRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(_pool: DbPool) -> Self {
+        Self {}
     }
 
-    pub fn get_or_create(&self, params: DeviceSpecsParams) -> Result<i32, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.get_or_create_with_conn(&mut conn, params)
-    }
-
-    pub fn get_or_create_with_conn(
+    pub fn get_or_create(
         &self,
         conn: &mut DbConnection,
         params: DeviceSpecsParams,
@@ -99,15 +89,7 @@ impl DeviceSpecsRepository {
         Ok(id)
     }
 
-    pub fn find_by_id(&self, id: i32) -> Result<Option<UnwrapDeviceSpecsModel>, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.find_by_id_with_conn(&mut conn, id)
-    }
-
-    pub fn find_by_id_with_conn(
+    pub fn find_by_id(
         &self,
         conn: &mut DbConnection,
         id: i32,

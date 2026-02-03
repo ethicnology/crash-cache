@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
@@ -40,15 +40,14 @@ impl ArchiveRepository {
         Ok(())
     }
 
-    pub fn find_by_hash(&self, hash: &str) -> Result<Option<Archive>, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn find_by_hash(
+        &self,
+        conn: &mut DbConnection,
+        hash: &str,
+    ) -> Result<Option<Archive>, DomainError> {
         let result = archive::table
             .filter(archive::hash.eq(hash))
-            .first::<ArchiveModel>(&mut conn)
+            .first::<ArchiveModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 

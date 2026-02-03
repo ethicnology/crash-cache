@@ -7,24 +7,14 @@ use crate::shared::persistence::db::schema::unwrap_exception_message;
 use diesel::prelude::*;
 
 #[derive(Clone)]
-pub struct ExceptionMessageRepository {
-    pool: DbPool,
-}
+pub struct ExceptionMessageRepository {}
 
 impl ExceptionMessageRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(_pool: DbPool) -> Self {
+        Self {}
     }
 
-    pub fn get_or_create(&self, hash: &str, value: &str) -> Result<i32, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.get_or_create_with_conn(&mut conn, hash, value)
-    }
-
-    pub fn get_or_create_with_conn(
+    pub fn get_or_create(
         &self,
         conn: &mut DbConnection,
         hash: &str,
@@ -55,17 +45,6 @@ impl ExceptionMessageRepository {
     }
 
     pub fn find_by_hash(
-        &self,
-        hash: &str,
-    ) -> Result<Option<UnwrapExceptionMessageModel>, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.find_by_hash_with_conn(&mut conn, hash)
-    }
-
-    pub fn find_by_hash_with_conn(
         &self,
         conn: &mut DbConnection,
         hash: &str,

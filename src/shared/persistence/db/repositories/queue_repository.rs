@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use chrono::{TimeZone, Utc};
 use diesel::prelude::*;
 
@@ -71,14 +71,9 @@ impl QueueRepository {
             .collect())
     }
 
-    pub fn remove(&self, archive_hash: &str) -> Result<(), DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn remove(&self, conn: &mut DbConnection, archive_hash: &str) -> Result<(), DomainError> {
         diesel::delete(queue::table.filter(queue::archive_hash.eq(archive_hash)))
-            .execute(&mut conn)
+            .execute(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(())

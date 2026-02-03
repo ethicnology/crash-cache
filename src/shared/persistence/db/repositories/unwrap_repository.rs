@@ -7,23 +7,14 @@ use diesel::prelude::*;
 macro_rules! impl_unwrap_repository {
     ($repo_name:ident, $table:ident, $model:ident, $new_model:ident) => {
         #[derive(Clone)]
-        pub struct $repo_name {
-            pool: DbPool,
-        }
+        pub struct $repo_name {}
 
         impl $repo_name {
-            pub fn new(pool: DbPool) -> Self {
-                Self { pool }
+            pub fn new(_pool: DbPool) -> Self {
+                Self {}
             }
 
-            pub fn get_or_create(&self, val: &str) -> Result<i32, DomainError> {
-                let mut conn = self.pool.get().map_err(|e| {
-                    DomainError::ConnectionPool(format!("Connection pool error: {}", e))
-                })?;
-                self.get_or_create_with_conn(&mut conn, val)
-            }
-
-            pub fn get_or_create_with_conn(
+            pub fn get_or_create(
                 &self,
                 conn: &mut DbConnection,
                 val: &str,
@@ -51,14 +42,7 @@ macro_rules! impl_unwrap_repository {
                 Ok(id)
             }
 
-            pub fn find_by_id(&self, id: i32) -> Result<Option<$model>, DomainError> {
-                let mut conn = self.pool.get().map_err(|e| {
-                    DomainError::ConnectionPool(format!("Connection pool error: {}", e))
-                })?;
-                self.find_by_id_with_conn(&mut conn, id)
-            }
-
-            pub fn find_by_id_with_conn(
+            pub fn find_by_id(
                 &self,
                 conn: &mut DbConnection,
                 id: i32,
@@ -71,14 +55,7 @@ macro_rules! impl_unwrap_repository {
                     .map_err(|e| DomainError::Database(e.to_string()))
             }
 
-            pub fn find_by_value(&self, val: &str) -> Result<Option<$model>, DomainError> {
-                let mut conn = self.pool.get().map_err(|e| {
-                    DomainError::ConnectionPool(format!("Connection pool error: {}", e))
-                })?;
-                self.find_by_value_with_conn(&mut conn, val)
-            }
-
-            pub fn find_by_value_with_conn(
+            pub fn find_by_value(
                 &self,
                 conn: &mut DbConnection,
                 val: &str,

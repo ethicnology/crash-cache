@@ -5,3 +5,6 @@
 *.gz
 report_*.json
 .env
+
+# Archive exports
+archive.jsonl

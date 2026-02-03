@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use crate::shared::compression::GzipCompressor;
-use crate::shared::persistence::{Repositories, establish_connection_pool, run_migrations};
+use crate::shared::persistence::{DbPool, Repositories, establish_connection_pool, run_migrations};
 
 use super::IngestReportUseCase;
 
@@ -54,13 +54,13 @@ fn clean_test_db(pool: &crate::shared::persistence::DbPool) {
     }
 }
 
-fn setup_test_db() -> (Repositories, i32) {
+fn setup_test_db() -> (Repositories, i32, DbPool) {
     let pool = establish_connection_pool(&test_database_url(), 10, 30);
     run_migrations(&pool);
     clean_test_db(&pool);
-    let repos = Repositories::new(pool);
+    let repos = Repositories::new(pool.clone());
     let project_id = repos.project.create(None, None).unwrap();
-    (repos, project_id)
+    (repos, project_id, pool)
 }
 
 fn sample_sentry_payload() -> Vec<u8> {
@@ -115,7 +115,7 @@ fn test_gzip_compression_roundtrip() {
 
 #[test]
 fn test_ingest_stores_archive() {
-    let (repos, project_id) = setup_test_db();
+    let (repos, project_id, pool) = setup_test_db();
     let archive_repo = repos.archive.clone();
     let queue_repo = repos.queue.clone();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
@@ -130,7 +130,8 @@ fn test_ingest_stores_archive() {
 
     assert_eq!(result_hash, hash);
 
-    let archive = archive_repo.find_by_hash(&hash).unwrap();
+    let mut conn = pool.get().unwrap();
+    let archive = archive_repo.find_by_hash(&mut conn, &hash).unwrap();
     assert!(archive.is_some());
     assert_eq!(archive.unwrap().original_size, Some(original_size));
 
@@ -140,7 +141,7 @@ fn test_ingest_stores_archive() {
 
 #[test]
 fn test_deduplication_same_hash_reuses_archive() {
-    let (repos, project_id) = setup_test_db();
+    let (repos, project_id, _pool) = setup_test_db();
     let archive_repo = repos.archive.clone();
     let queue_repo = repos.queue.clone();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
@@ -165,7 +166,7 @@ fn test_deduplication_same_hash_reuses_archive() {
 
 #[test]
 fn test_different_payloads_different_hashes() {
-    let (repos, project_id) = setup_test_db();
+    let (repos, project_id, _pool) = setup_test_db();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
 
     let (hash1, compressed1) = compress_and_hash(b"payload one");
@@ -183,7 +184,7 @@ fn test_different_payloads_different_hashes() {
 
 #[test]
 fn test_unknown_project_returns_error() {
-    let (repos, _project_id) = setup_test_db();
+    let (repos, _project_id, _pool) = setup_test_db();
     let use_case = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
 
     let (hash, compressed) = compress_and_hash(&sample_sentry_payload());

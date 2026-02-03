@@ -17,19 +17,6 @@ impl IssueRepository {
 
     pub fn get_or_create(
         &self,
-        fingerprint_hash: &str,
-        exception_type_id: Option<i32>,
-        title: Option<String>,
-    ) -> Result<i32, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
-        self.get_or_create_with_conn(&mut conn, fingerprint_hash, exception_type_id, title)
-    }
-
-    pub fn get_or_create_with_conn(
-        &self,
         conn: &mut DbConnection,
         fingerprint_hash: &str,
         exception_type_id: Option<i32>,

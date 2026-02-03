@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use chrono::Utc;
 use diesel::prelude::*;
 
@@ -46,16 +46,15 @@ impl ReportRepository {
         Self { pool }
     }
 
-    pub fn create(&self, new_report: NewReport) -> Result<i32, DomainError> {
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
+    pub fn create(
+        &self,
+        conn: &mut DbConnection,
+        new_report: NewReport,
+    ) -> Result<i32, DomainError> {
         let exists: i64 = report::table
             .filter(report::event_id.eq(&new_report.event_id))
             .count()
-            .get_result(&mut conn)
+            .get_result(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         if exists > 0 {
@@ -95,7 +94,7 @@ impl ReportRepository {
         let id = diesel::insert_into(report::table)
             .values(&model)
             .returning(report::id)
-            .get_result::<i32>(&mut conn)
+            .get_result::<i32>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)

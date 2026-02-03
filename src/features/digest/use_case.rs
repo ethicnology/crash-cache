@@ -54,7 +54,11 @@ impl DigestReportUseCase {
                         event_id = %event_id,
                         "Duplicate event_id, skipping (already processed)"
                     );
-                    self.repos.queue.remove(&item.archive_hash)?;
+                    let mut conn = self
+                        .pool
+                        .get()
+                        .map_err(|e| DomainError::Database(e.to_string()))?;
+                    self.repos.queue.remove(&mut conn, &item.archive_hash)?;
                 }
                 Err(e) => {
                     self.handle_failure(&item, e)?;
@@ -81,13 +85,13 @@ impl DigestReportUseCase {
 
     fn process_single_item_tx(
         &self,
-        _conn: &mut DbConnection,
+        conn: &mut DbConnection,
         item: &QueueItem,
     ) -> Result<(), DomainError> {
         let archive = self
             .repos
             .archive
-            .find_by_hash(&item.archive_hash)?
+            .find_by_hash(conn, &item.archive_hash)?
             .ok_or_else(|| {
                 DomainError::NotFound(format!("Archive {} not found", item.archive_hash))
             })?;
@@ -95,7 +99,7 @@ impl DigestReportUseCase {
         let decompressed = self.compressor.decompress(&archive.compressed_payload)?;
 
         // Try to parse as envelope first to extract session
-        let session_id = self.extract_and_store_session(&decompressed, archive.project_id)?;
+        let session_id = self.extract_and_store_session(conn, &decompressed, archive.project_id)?;
 
         // Try parsing as raw JSON first, then as envelope format
         let sentry_report: SentryReport = self.parse_payload(&decompressed)?;
@@ -107,23 +111,25 @@ impl DigestReportUseCase {
 
         let timestamp = self.parse_timestamp(&sentry_report.timestamp);
 
-        let platform_id = self.get_or_create_unwrap(&sentry_report.platform, |v| {
-            self.repos.platform.get_or_create(v)
+        let platform_id = self.get_or_create_unwrap(conn, &sentry_report.platform, |conn, v| {
+            self.repos.platform.get_or_create(conn, v)
         })?;
 
-        let environment_id = self.get_or_create_unwrap(&sentry_report.environment, |v| {
-            self.repos.environment.get_or_create(v)
-        })?;
+        let environment_id =
+            self.get_or_create_unwrap(conn, &sentry_report.environment, |conn, v| {
+                self.repos.environment.get_or_create(conn, v)
+            })?;
 
-        let (os_name_id, os_version_id) = self.extract_os_info(&sentry_report)?;
+        let (os_name_id, os_version_id) = self.extract_os_info(conn, &sentry_report)?;
         let (manufacturer_id, brand_id, model_id, chipset_id, device_specs_id) =
-            self.extract_device_info(&sentry_report)?;
+            self.extract_device_info(conn, &sentry_report)?;
         let (locale_code_id, timezone_id, connection_type_id, orientation_id) =
-            self.extract_locale_info(&sentry_report)?;
-        let (app_name_id, app_version_id, app_build_id) = self.extract_app_info(&sentry_report)?;
-        let user_id = self.extract_user_info(&sentry_report)?;
+            self.extract_locale_info(conn, &sentry_report)?;
+        let (app_name_id, app_version_id, app_build_id) =
+            self.extract_app_info(conn, &sentry_report)?;
+        let user_id = self.extract_user_info(conn, &sentry_report)?;
         let (exception_type_id, exception_message_id, stacktrace_id, issue_id) =
-            self.extract_exception_info(&sentry_report)?;
+            self.extract_exception_info(conn, &sentry_report)?;
 
         let new_report = NewReport {
             event_id,
@@ -154,15 +160,16 @@ impl DigestReportUseCase {
             session_id,
         };
 
-        self.repos.report.create(new_report)?;
-        self.repos.queue.remove(&item.archive_hash)?;
+        self.repos.report.create(conn, new_report)?;
+        self.repos.queue.remove(conn, &item.archive_hash)?;
 
         Ok(())
     }
 
-    /// Extract session from envelope and store it, returning the session_id if found
+    /// Extract session from envelope and store it (with connection), returning the session_id if found
     fn extract_and_store_session(
         &self,
+        conn: &mut DbConnection,
         decompressed: &[u8],
         project_id: i32,
     ) -> Result<Option<i32>, DomainError> {
@@ -189,17 +196,20 @@ impl DigestReportUseCase {
         };
 
         // Get or create status_id
-        let status_id = self.repos.session_status.get_or_create(&session.status)?;
+        let status_id = self
+            .repos
+            .session_status
+            .get_or_create(conn, &session.status)?;
 
         // Get or create release_id (optional)
         let release_id = match &session.attrs.release {
-            Some(r) => Some(self.repos.session_release.get_or_create(r)?),
+            Some(r) => Some(self.repos.session_release.get_or_create(conn, r)?),
             None => None,
         };
 
         // Get or create environment_id (optional)
         let environment_id = match &session.attrs.environment {
-            Some(env) => Some(self.repos.session_environment.get_or_create(env)?),
+            Some(env) => Some(self.repos.session_environment.get_or_create(conn, env)?),
             None => None,
         };
 
@@ -218,7 +228,7 @@ impl DigestReportUseCase {
             environment_id,
         };
 
-        match self.repos.session.upsert(new_session) {
+        match self.repos.session.upsert(conn, new_session) {
             Ok(session_id) => {
                 debug!(sid = %session.sid, session_id = %session_id, status = %session.status, "Session stored during digest");
                 Ok(Some(session_id))
@@ -232,15 +242,16 @@ impl DigestReportUseCase {
 
     fn get_or_create_unwrap<F>(
         &self,
+        conn: &mut DbConnection,
         value: &Option<String>,
         get_or_create_fn: F,
     ) -> Result<Option<i32>, DomainError>
     where
-        F: FnOnce(&str) -> Result<i32, DomainError>,
+        F: FnOnce(&mut DbConnection, &str) -> Result<i32, DomainError>,
     {
         match value {
             Some(v) if !v.is_empty() => {
-                let id = get_or_create_fn(v)?;
+                let id = get_or_create_fn(conn, v)?;
                 Ok(Some(id))
             }
             _ => Ok(None),
@@ -249,43 +260,48 @@ impl DigestReportUseCase {
 
     fn extract_os_info(
         &self,
+        conn: &mut DbConnection,
         report: &SentryReport,
     ) -> Result<(Option<i32>, Option<i32>), DomainError> {
         let os = report.contexts.as_ref().and_then(|c| c.os.as_ref());
 
         let os_name_id = match os.and_then(|o| o.name.as_ref()) {
-            Some(name) => Some(self.repos.os_name.get_or_create(name)?),
+            Some(name) => Some(self.repos.os_name.get_or_create(conn, name)?),
             None => None,
         };
 
         let os_version_id = match os.and_then(|o| o.version.as_ref()) {
-            Some(version) => Some(self.repos.os_version.get_or_create(version)?),
+            Some(version) => Some(self.repos.os_version.get_or_create(conn, version)?),
             None => None,
         };
 
         Ok((os_name_id, os_version_id))
     }
 
-    fn extract_device_info(&self, report: &SentryReport) -> Result<DeviceIds, DomainError> {
+    fn extract_device_info(
+        &self,
+        conn: &mut DbConnection,
+        report: &SentryReport,
+    ) -> Result<DeviceIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
 
         let manufacturer_id = match device.and_then(|d| d.manufacturer.as_ref()) {
-            Some(v) => Some(self.repos.manufacturer.get_or_create(v)?),
+            Some(v) => Some(self.repos.manufacturer.get_or_create(conn, v)?),
             None => None,
         };
 
         let brand_id = match device.and_then(|d| d.brand.as_ref()) {
-            Some(v) => Some(self.repos.brand.get_or_create(v)?),
+            Some(v) => Some(self.repos.brand.get_or_create(conn, v)?),
             None => None,
         };
 
         let model_id = match device.and_then(|d| d.model.as_ref()) {
-            Some(v) => Some(self.repos.model.get_or_create(v)?),
+            Some(v) => Some(self.repos.model.get_or_create(conn, v)?),
             None => None,
         };
 
         let chipset_id = match device.and_then(|d| d.chipset.as_ref()) {
-            Some(v) => Some(self.repos.chipset.get_or_create(v)?),
+            Some(v) => Some(self.repos.chipset.get_or_create(conn, v)?),
             None => None,
         };
 
@@ -294,15 +310,18 @@ impl DigestReportUseCase {
                 .archs
                 .as_ref()
                 .map(|a| serde_json::to_string(a).unwrap_or_default());
-            Some(self.repos.device_specs.get_or_create(DeviceSpecsParams {
-                screen_width: d.screen_width_pixels,
-                screen_height: d.screen_height_pixels,
-                screen_density: d.screen_density,
-                screen_dpi: d.screen_dpi,
-                processor_count: d.processor_count,
-                memory_size: d.memory_size,
-                archs: archs_json,
-            })?)
+            Some(self.repos.device_specs.get_or_create(
+                conn,
+                DeviceSpecsParams {
+                    screen_width: d.screen_width_pixels,
+                    screen_height: d.screen_height_pixels,
+                    screen_density: d.screen_density,
+                    screen_dpi: d.screen_dpi,
+                    processor_count: d.processor_count,
+                    memory_size: d.memory_size,
+                    archs: archs_json,
+                },
+            )?)
         } else {
             None
         };
@@ -316,7 +335,11 @@ impl DigestReportUseCase {
         ))
     }
 
-    fn extract_locale_info(&self, report: &SentryReport) -> Result<LocaleIds, DomainError> {
+    fn extract_locale_info(
+        &self,
+        conn: &mut DbConnection,
+        report: &SentryReport,
+    ) -> Result<LocaleIds, DomainError> {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
         let culture = report.contexts.as_ref().and_then(|c| c.culture.as_ref());
 
@@ -324,7 +347,7 @@ impl DigestReportUseCase {
             .and_then(|c| c.locale.as_ref())
             .or_else(|| device.and_then(|d| d.locale.as_ref()))
         {
-            Some(v) => Some(self.repos.locale_code.get_or_create(v)?),
+            Some(v) => Some(self.repos.locale_code.get_or_create(conn, v)?),
             None => None,
         };
 
@@ -332,17 +355,17 @@ impl DigestReportUseCase {
             .and_then(|c| c.timezone.as_ref())
             .or_else(|| device.and_then(|d| d.timezone.as_ref()))
         {
-            Some(v) => Some(self.repos.timezone.get_or_create(v)?),
+            Some(v) => Some(self.repos.timezone.get_or_create(conn, v)?),
             None => None,
         };
 
         let connection_type_id = match device.and_then(|d| d.connection_type.as_ref()) {
-            Some(v) => Some(self.repos.connection_type.get_or_create(v)?),
+            Some(v) => Some(self.repos.connection_type.get_or_create(conn, v)?),
             None => None,
         };
 
         let orientation_id = match device.and_then(|d| d.orientation.as_ref()) {
-            Some(v) => Some(self.repos.orientation.get_or_create(v)?),
+            Some(v) => Some(self.repos.orientation.get_or_create(conn, v)?),
             None => None,
         };
 
@@ -354,7 +377,11 @@ impl DigestReportUseCase {
         ))
     }
 
-    fn extract_app_info(&self, report: &SentryReport) -> Result<AppIds, DomainError> {
+    fn extract_app_info(
+        &self,
+        conn: &mut DbConnection,
+        report: &SentryReport,
+    ) -> Result<AppIds, DomainError> {
         let app = report.contexts.as_ref().and_then(|c| c.app.as_ref());
 
         let release_cache: std::cell::OnceCell<(Option<String>, Option<String>, Option<String>)> =
@@ -367,7 +394,7 @@ impl DigestReportUseCase {
             .or_else(|| get_release().0.clone());
 
         let app_name_id = match app_name_value {
-            Some(ref v) => Some(self.repos.app_name.get_or_create(v)?),
+            Some(ref v) => Some(self.repos.app_name.get_or_create(conn, v)?),
             None => None,
         };
 
@@ -376,7 +403,7 @@ impl DigestReportUseCase {
             .or_else(|| get_release().1.clone());
 
         let app_version_id = match app_version_value {
-            Some(ref v) => Some(self.repos.app_version.get_or_create(v)?),
+            Some(ref v) => Some(self.repos.app_version.get_or_create(conn, v)?),
             None => None,
         };
 
@@ -386,40 +413,29 @@ impl DigestReportUseCase {
             .or_else(|| get_release().2.clone());
 
         let app_build_id = match app_build_value {
-            Some(ref v) => Some(self.repos.app_build.get_or_create(v)?),
+            Some(ref v) => Some(self.repos.app_build.get_or_create(conn, v)?),
             None => None,
         };
 
         Ok((app_name_id, app_version_id, app_build_id))
     }
 
-    fn parse_release(release: &Option<String>) -> (Option<String>, Option<String>, Option<String>) {
-        let release_str = match release {
-            Some(r) if !r.is_empty() => r,
-            _ => return (None, None, None),
-        };
-
-        let (identifier, version_build) = match release_str.split_once('@') {
-            Some((id, rest)) => (Some(id.to_string()), rest),
-            None => return (None, None, None),
-        };
-
-        let (version, build) = match version_build.split_once('+') {
-            Some((v, b)) => (Some(v.to_string()), Some(b.to_string())),
-            None => (Some(version_build.to_string()), None),
-        };
-
-        (identifier, version, build)
-    }
-
-    fn extract_user_info(&self, report: &SentryReport) -> Result<Option<i32>, DomainError> {
+    fn extract_user_info(
+        &self,
+        conn: &mut DbConnection,
+        report: &SentryReport,
+    ) -> Result<Option<i32>, DomainError> {
         match report.user.as_ref().and_then(|u| u.id.as_ref()) {
-            Some(user_id) => Ok(Some(self.repos.user.get_or_create(user_id)?)),
+            Some(user_id) => Ok(Some(self.repos.user.get_or_create(conn, user_id)?)),
             None => Ok(None),
         }
     }
 
-    fn extract_exception_info(&self, report: &SentryReport) -> Result<ExceptionIds, DomainError> {
+    fn extract_exception_info(
+        &self,
+        conn: &mut DbConnection,
+        report: &SentryReport,
+    ) -> Result<ExceptionIds, DomainError> {
         let exception = report
             .exception
             .as_ref()
@@ -427,14 +443,18 @@ impl DigestReportUseCase {
             .and_then(|v| v.first());
 
         let exception_type_id = match exception.and_then(|e| e.exception_type.as_ref()) {
-            Some(v) => Some(self.repos.exception_type.get_or_create(v)?),
+            Some(v) => Some(self.repos.exception_type.get_or_create(conn, v)?),
             None => None,
         };
 
         let exception_message_id = match exception.and_then(|e| e.value.as_ref()) {
             Some(msg) => {
                 let hash = self.compute_hash(msg.as_bytes());
-                Some(self.repos.exception_message.get_or_create(&hash, msg)?)
+                Some(
+                    self.repos
+                        .exception_message
+                        .get_or_create(conn, &hash, msg)?,
+                )
             }
             None => None,
         };
@@ -475,7 +495,7 @@ impl DigestReportUseCase {
                 Some(
                     self.repos
                         .issue
-                        .get_or_create(fp, exception_type_id, title)?,
+                        .get_or_create(conn, fp, exception_type_id, title)?,
                 )
             }
             None => None,
@@ -491,6 +511,7 @@ impl DigestReportUseCase {
                     .unwrap_or_default();
 
                 Some(self.repos.stacktrace.get_or_create(
+                    conn,
                     hash,
                     fingerprint_hash.clone(),
                     &frames_json,
@@ -505,6 +526,25 @@ impl DigestReportUseCase {
             stacktrace_id,
             issue_id,
         ))
+    }
+
+    fn parse_release(release: &Option<String>) -> (Option<String>, Option<String>, Option<String>) {
+        let release_str = match release {
+            Some(r) if !r.is_empty() => r,
+            _ => return (None, None, None),
+        };
+
+        let (identifier, version_build) = match release_str.split_once('@') {
+            Some((id, rest)) => (Some(id.to_string()), rest),
+            None => return (None, None, None),
+        };
+
+        let (version, build) = match version_build.split_once('+') {
+            Some((v, b)) => (Some(v.to_string()), Some(b.to_string())),
+            None => (Some(version_build.to_string()), None),
+        };
+
+        (identifier, version, build)
     }
 
     fn compute_hash(&self, data: &[u8]) -> String {
@@ -560,7 +600,11 @@ impl DigestReportUseCase {
             .record_error(&item.archive_hash, &err.to_string())?;
 
         // Remove from processing queue
-        self.repos.queue.remove(&item.archive_hash)?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+        self.repos.queue.remove(&mut conn, &item.archive_hash)?;
 
         Ok(())
     }
