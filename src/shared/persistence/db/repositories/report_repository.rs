@@ -92,15 +92,10 @@ impl ReportRepository {
             session_id: new_report.session_id,
         };
 
-        diesel::insert_into(report::table)
+        let id = diesel::insert_into(report::table)
             .values(&model)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        let id = report::table
-            .select(report::id)
-            .order(report::id.desc())
-            .first::<i32>(&mut conn)
+            .returning(report::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)

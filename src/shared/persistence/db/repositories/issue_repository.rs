@@ -55,18 +55,13 @@ impl IssueRepository {
             event_count: 1,
         };
 
-        diesel::insert_into(issue::table)
+        let id = diesel::insert_into(issue::table)
             .values(&new_record)
-            .execute(&mut conn)
+            .returning(issue::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let inserted = issue::table
-            .filter(issue::fingerprint_hash.eq(fingerprint_hash))
-            .select(IssueModel::as_select())
-            .first::<IssueModel>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(inserted.id)
+        Ok(id)
     }
 
     pub fn find_by_fingerprint(

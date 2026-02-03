@@ -29,29 +29,24 @@ impl QueueRepository {
             created_at: item.created_at.naive_utc(),
         };
 
-        let rows = diesel::insert_into(queue::table)
+        // Try to insert and return the ID
+        // If conflict occurs with do_nothing, Diesel will return an error, so we fetch existing
+        match diesel::insert_into(queue::table)
             .values(&model)
-            .on_conflict(queue::archive_hash)
-            .do_nothing()
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        if rows == 0 {
-            let existing = queue::table
-                .filter(queue::archive_hash.eq(&item.archive_hash))
-                .select(queue::id)
-                .first::<i32>(&mut conn)
-                .map_err(|e| DomainError::Database(e.to_string()))?;
-            return Ok(existing);
+            .returning(queue::id)
+            .get_result::<i32>(&mut conn)
+        {
+            Ok(id) => Ok(id),
+            Err(_) => {
+                // Conflict occurred, fetch the existing record
+                let existing = queue::table
+                    .filter(queue::archive_hash.eq(&item.archive_hash))
+                    .select(queue::id)
+                    .first::<i32>(&mut conn)
+                    .map_err(|e| DomainError::Database(e.to_string()))?;
+                Ok(existing)
+            }
         }
-
-        let id = queue::table
-            .select(queue::id)
-            .order(queue::id.desc())
-            .first::<i32>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(id)
     }
 
     pub fn dequeue_batch(&self, limit: i32) -> Result<Vec<QueueItem>, DomainError> {
@@ -126,39 +121,28 @@ impl QueueErrorRepository {
             created_at: Utc::now().naive_utc(),
         };
 
-        // Use insert with conflict handling to handle duplicates gracefully
-        let rows = diesel::insert_into(queue_error::table)
+        // Try to insert and return ID
+        match diesel::insert_into(queue_error::table)
             .values(&model)
-            .on_conflict(queue_error::archive_hash)
-            .do_nothing()
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        if rows == 0 {
-            // Update existing error
-            diesel::update(queue_error::table.filter(queue_error::archive_hash.eq(archive_hash)))
+            .returning(queue_error::id)
+            .get_result::<i32>(&mut conn)
+        {
+            Ok(id) => Ok(id),
+            Err(_) => {
+                // Conflict occurred, update existing record and return its ID
+                let id = diesel::update(
+                    queue_error::table.filter(queue_error::archive_hash.eq(archive_hash)),
+                )
                 .set((
                     queue_error::error.eq(error),
                     queue_error::created_at.eq(Utc::now().naive_utc()),
                 ))
-                .execute(&mut conn)
+                .returning(queue_error::id)
+                .get_result::<i32>(&mut conn)
                 .map_err(|e| DomainError::Database(e.to_string()))?;
-
-            let existing = queue_error::table
-                .filter(queue_error::archive_hash.eq(archive_hash))
-                .select(queue_error::id)
-                .first::<i32>(&mut conn)
-                .map_err(|e| DomainError::Database(e.to_string()))?;
-            return Ok(existing);
+                Ok(id)
+            }
         }
-
-        let id = queue_error::table
-            .select(queue_error::id)
-            .order(queue_error::id.desc())
-            .first::<i32>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(id)
     }
 
     pub fn find_all(&self) -> Result<Vec<QueueError>, DomainError> {

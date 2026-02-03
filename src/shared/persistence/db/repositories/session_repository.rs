@@ -39,18 +39,13 @@ macro_rules! impl_session_unwrap_repository {
                     value: val.to_string(),
                 };
 
-                diesel::insert_into($table::table)
+                let id = diesel::insert_into($table::table)
                     .values(&new_record)
-                    .execute(&mut conn)
+                    .returning($table::id)
+                    .get_result::<i32>(&mut conn)
                     .map_err(|e| DomainError::Database(e.to_string()))?;
 
-                let inserted = $table::table
-                    .filter($table::value.eq(val))
-                    .select($model::as_select())
-                    .first::<$model>(&mut conn)
-                    .map_err(|e| DomainError::Database(e.to_string()))?;
-
-                Ok(inserted.id)
+                Ok(id)
             }
 
             pub fn find_by_id(&self, id: i32) -> Result<Option<$model>, DomainError> {
@@ -139,19 +134,13 @@ impl SessionRepository {
         }
 
         // Insert new session
-        diesel::insert_into(session::table)
+        let id = diesel::insert_into(session::table)
             .values(&new_session)
-            .execute(&mut conn)
+            .returning(session::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let inserted = session::table
-            .filter(session::project_id.eq(new_session.project_id))
-            .filter(session::sid.eq(&new_session.sid))
-            .select(SessionModel::as_select())
-            .first::<SessionModel>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(inserted.id)
+        Ok(id)
     }
 
     pub fn find_by_sid(

@@ -37,18 +37,13 @@ impl ExceptionMessageRepository {
             value: value.to_string(),
         };
 
-        diesel::insert_into(unwrap_exception_message::table)
+        let id = diesel::insert_into(unwrap_exception_message::table)
             .values(&new_record)
-            .execute(&mut conn)
+            .returning(unwrap_exception_message::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let inserted = unwrap_exception_message::table
-            .filter(unwrap_exception_message::hash.eq(hash))
-            .select(UnwrapExceptionMessageModel::as_select())
-            .first::<UnwrapExceptionMessageModel>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(inserted.id)
+        Ok(id)
     }
 
     pub fn find_by_hash(

@@ -32,15 +32,10 @@ impl ProjectRepository {
             created_at: chrono::Utc::now().naive_utc(),
         };
 
-        diesel::insert_into(project::table)
+        let id = diesel::insert_into(project::table)
             .values(&model)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        let id: i32 = project::table
-            .select(project::id)
-            .order(project::id.desc())
-            .first(&mut conn)
+            .returning(project::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)

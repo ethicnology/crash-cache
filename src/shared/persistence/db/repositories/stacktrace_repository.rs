@@ -41,18 +41,13 @@ impl StacktraceRepository {
             frames_json: frames_json.to_string(),
         };
 
-        diesel::insert_into(unwrap_stacktrace::table)
+        let id = diesel::insert_into(unwrap_stacktrace::table)
             .values(&new_record)
-            .execute(&mut conn)
+            .returning(unwrap_stacktrace::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        let inserted = unwrap_stacktrace::table
-            .filter(unwrap_stacktrace::hash.eq(hash))
-            .select(UnwrapStacktraceModel::as_select())
-            .first::<UnwrapStacktraceModel>(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        Ok(inserted.id)
+        Ok(id)
     }
 
     pub fn find_by_hash(&self, hash: &str) -> Result<Option<UnwrapStacktraceModel>, DomainError> {

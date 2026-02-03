@@ -35,18 +35,13 @@ macro_rules! impl_unwrap_repository {
                     value: val.to_string(),
                 };
 
-                diesel::insert_into($table::table)
+                let id = diesel::insert_into($table::table)
                     .values(&new_record)
-                    .execute(&mut conn)
+                    .returning($table::id)
+                    .get_result::<i32>(&mut conn)
                     .map_err(|e| DomainError::Database(e.to_string()))?;
 
-                let inserted = $table::table
-                    .filter($table::value.eq(val))
-                    .select($model::as_select())
-                    .first::<$model>(&mut conn)
-                    .map_err(|e| DomainError::Database(e.to_string()))?;
-
-                Ok(inserted.id)
+                Ok(id)
             }
 
             pub fn find_by_id(&self, id: i32) -> Result<Option<$model>, DomainError> {

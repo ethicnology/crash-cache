@@ -83,15 +83,10 @@ impl DeviceSpecsRepository {
             archs: params.archs,
         };
 
-        diesel::insert_into(unwrap_device_specs::table)
+        let id = diesel::insert_into(unwrap_device_specs::table)
             .values(&new_record)
-            .execute(&mut conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        let id = unwrap_device_specs::table
-            .select(unwrap_device_specs::id)
-            .order(unwrap_device_specs::id.desc())
-            .first::<i32>(&mut conn)
+            .returning(unwrap_device_specs::id)
+            .get_result::<i32>(&mut conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
