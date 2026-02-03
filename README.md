@@ -45,14 +45,17 @@ Ingest is optimized for speed: validate, compress, hash, store, respond. Heavy p
 
 **For PostgreSQL (default):**
 ```bash
-# macOS
-brew install postgresql
+# macOS (installs libpq and optionally postgresql server)
+brew install libpq
+# Add to PATH: export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 
-# Ubuntu/Debian
-sudo apt-get install libpq-dev postgresql
+# Ubuntu/Debian (libpq-dev for building, postgresql for running locally)
+sudo apt-get install libpq-dev
+# Optional: sudo apt-get install postgresql  (if running DB locally)
 
 # Fedora/RHEL
-sudo dnf install libpq-devel postgresql
+sudo dnf install libpq-devel
+# Optional: sudo dnf install postgresql  (if running DB locally)
 ```
 
 **For SQLite:** No dependencies required.
