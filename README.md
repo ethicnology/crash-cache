@@ -4,7 +4,7 @@ A lightweight, self-hosted Sentry-compatible error tracking backend. Drop-in rep
 
 ## Why
 
-Sentry's hosted service is expensive at scale. Self-hosting official Sentry requires significant infrastructure (Kafka, Redis, PostgreSQL, ClickHouse, etc.). crash-cache is a single binary with SQLite that handles Sentry SDK payloads.
+Sentry's hosted service is expensive at scale. Self-hosting official Sentry requires significant infrastructure (Kafka, Redis, PostgreSQL, ClickHouse, etc.). crash-cache is a single binary with PostgreSQL or SQLite that handles Sentry SDK payloads.
 
 ## Features
 
@@ -61,7 +61,7 @@ Environment variables (or `.env` file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `crash_cache.db` | SQLite database path |
+| `DATABASE_URL` | `postgresql://...` | Database connection string (PostgreSQL or SQLite file path) |
 | `SERVER_HOST` | `0.0.0.0` | Listen host |
 | `SERVER_PORT` | `3000` | Listen port |
 | `WORKER_INTERVAL_SECS` | `60` | Digest worker interval |
@@ -90,7 +90,7 @@ crash-cache-cli ruminate [--yes]  # Reprocess all archives
 
 ## Database
 
-SQLite with normalized schema:
+PostgreSQL (default) or SQLite with normalized schema:
 
 - `archive` - Compressed payloads
 - `queue` / `queue_error` - Processing queue
@@ -99,7 +99,42 @@ SQLite with normalized schema:
 - `unwrap_*` - Dimension tables (platform, os, device, app, etc.)
 - `session` - Release health tracking
 
-Postgres support is feature-flagged but not yet implemented.
+### Database Backend Selection
+
+The database backend is selected at compile time via feature flags:
+
+```bash
+# PostgreSQL (default)
+cargo build --release
+
+# SQLite
+cargo build --release --no-default-features --features sqlite
+```
+
+### Migrating from SQLite to PostgreSQL
+
+1. Export archives from SQLite:
+   ```bash
+   DATABASE_URL=crash_cache.db cargo run --features sqlite -- archive export > archives.jsonl
+   ```
+
+2. Setup PostgreSQL database:
+   ```bash
+   createdb crash_cache
+   export DATABASE_URL=postgresql://user:pass@localhost/crash_cache
+   ```
+
+3. Import archives to PostgreSQL:
+   ```bash
+   cargo run --features postgres -- archive import < archives.jsonl
+   ```
+
+4. Reprocess archives to regenerate all data:
+   ```bash
+   cargo run --features postgres -- ruminate --yes
+   ```
+
+Migrations run automatically on startup.
 
 ## Performance Notes
 
