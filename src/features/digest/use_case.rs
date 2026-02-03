@@ -1,3 +1,4 @@
+use diesel::Connection;
 use sha2::{Digest, Sha256};
 use tracing::{debug, error, info, warn};
 
@@ -5,7 +6,9 @@ use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryReport};
 use crate::shared::parser::{Envelope, SentrySession};
 use crate::shared::persistence::db::models::NewSessionModel;
-use crate::shared::persistence::{DeviceSpecsParams, NewReport, Repositories};
+use crate::shared::persistence::{
+    DbConnection, DbPool, DeviceSpecsParams, NewReport, Repositories,
+};
 
 // Type aliases for complex return types
 type DeviceIds = (
@@ -22,12 +25,17 @@ type ExceptionIds = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
 #[derive(Clone)]
 pub struct DigestReportUseCase {
     repos: Repositories,
+    pool: DbPool,
     compressor: GzipCompressor,
 }
 
 impl DigestReportUseCase {
-    pub fn new(repos: Repositories, compressor: GzipCompressor) -> Self {
-        Self { repos, compressor }
+    pub fn new(repos: Repositories, pool: DbPool, compressor: GzipCompressor) -> Self {
+        Self {
+            repos,
+            pool,
+            compressor,
+        }
     }
 
     pub fn process_batch(&self, limit: i32) -> Result<u32, DomainError> {
@@ -58,6 +66,24 @@ impl DigestReportUseCase {
     }
 
     fn process_single_item(&self, item: &QueueItem) -> Result<(), DomainError> {
+        // Get a connection and wrap everything in a transaction
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+
+        conn.transaction(|conn| {
+            self.process_single_item_tx(conn, item)
+                .map_err(|_| diesel::result::Error::RollbackTransaction)
+        })
+        .map_err(|e| DomainError::Database(e.to_string()))
+    }
+
+    fn process_single_item_tx(
+        &self,
+        conn: &mut DbConnection,
+        item: &QueueItem,
+    ) -> Result<(), DomainError> {
         let archive = self
             .repos
             .archive
@@ -163,31 +189,17 @@ impl DigestReportUseCase {
         };
 
         // Get or create status_id
-        let status_id = self
-            .repos
-            .session_status
-            .get_or_create(&session.status)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
+        let status_id = self.repos.session_status.get_or_create(&session.status)?;
 
         // Get or create release_id (optional)
         let release_id = match &session.attrs.release {
-            Some(r) => Some(
-                self.repos
-                    .session_release
-                    .get_or_create(r)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(r) => Some(self.repos.session_release.get_or_create(r)?),
             None => None,
         };
 
         // Get or create environment_id (optional)
         let environment_id = match &session.attrs.environment {
-            Some(env) => Some(
-                self.repos
-                    .session_environment
-                    .get_or_create(env)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(env) => Some(self.repos.session_environment.get_or_create(env)?),
             None => None,
         };
 
@@ -242,22 +254,12 @@ impl DigestReportUseCase {
         let os = report.contexts.as_ref().and_then(|c| c.os.as_ref());
 
         let os_name_id = match os.and_then(|o| o.name.as_ref()) {
-            Some(name) => Some(
-                self.repos
-                    .os_name
-                    .get_or_create(name)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(name) => Some(self.repos.os_name.get_or_create(name)?),
             None => None,
         };
 
         let os_version_id = match os.and_then(|o| o.version.as_ref()) {
-            Some(version) => Some(
-                self.repos
-                    .os_version
-                    .get_or_create(version)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(version) => Some(self.repos.os_version.get_or_create(version)?),
             None => None,
         };
 
@@ -268,42 +270,22 @@ impl DigestReportUseCase {
         let device = report.contexts.as_ref().and_then(|c| c.device.as_ref());
 
         let manufacturer_id = match device.and_then(|d| d.manufacturer.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .manufacturer
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.manufacturer.get_or_create(v)?),
             None => None,
         };
 
         let brand_id = match device.and_then(|d| d.brand.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .brand
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.brand.get_or_create(v)?),
             None => None,
         };
 
         let model_id = match device.and_then(|d| d.model.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .model
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.model.get_or_create(v)?),
             None => None,
         };
 
         let chipset_id = match device.and_then(|d| d.chipset.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .chipset
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.chipset.get_or_create(v)?),
             None => None,
         };
 
@@ -312,20 +294,15 @@ impl DigestReportUseCase {
                 .archs
                 .as_ref()
                 .map(|a| serde_json::to_string(a).unwrap_or_default());
-            Some(
-                self.repos
-                    .device_specs
-                    .get_or_create(DeviceSpecsParams {
-                        screen_width: d.screen_width_pixels,
-                        screen_height: d.screen_height_pixels,
-                        screen_density: d.screen_density,
-                        screen_dpi: d.screen_dpi,
-                        processor_count: d.processor_count,
-                        memory_size: d.memory_size,
-                        archs: archs_json,
-                    })
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            )
+            Some(self.repos.device_specs.get_or_create(DeviceSpecsParams {
+                screen_width: d.screen_width_pixels,
+                screen_height: d.screen_height_pixels,
+                screen_density: d.screen_density,
+                screen_dpi: d.screen_dpi,
+                processor_count: d.processor_count,
+                memory_size: d.memory_size,
+                archs: archs_json,
+            })?)
         } else {
             None
         };
@@ -347,12 +324,7 @@ impl DigestReportUseCase {
             .and_then(|c| c.locale.as_ref())
             .or_else(|| device.and_then(|d| d.locale.as_ref()))
         {
-            Some(v) => Some(
-                self.repos
-                    .locale_code
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.locale_code.get_or_create(v)?),
             None => None,
         };
 
@@ -360,32 +332,17 @@ impl DigestReportUseCase {
             .and_then(|c| c.timezone.as_ref())
             .or_else(|| device.and_then(|d| d.timezone.as_ref()))
         {
-            Some(v) => Some(
-                self.repos
-                    .timezone
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.timezone.get_or_create(v)?),
             None => None,
         };
 
         let connection_type_id = match device.and_then(|d| d.connection_type.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .connection_type
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.connection_type.get_or_create(v)?),
             None => None,
         };
 
         let orientation_id = match device.and_then(|d| d.orientation.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .orientation
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.orientation.get_or_create(v)?),
             None => None,
         };
 
@@ -410,12 +367,7 @@ impl DigestReportUseCase {
             .or_else(|| get_release().0.clone());
 
         let app_name_id = match app_name_value {
-            Some(ref v) => Some(
-                self.repos
-                    .app_name
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(ref v) => Some(self.repos.app_name.get_or_create(v)?),
             None => None,
         };
 
@@ -424,12 +376,7 @@ impl DigestReportUseCase {
             .or_else(|| get_release().1.clone());
 
         let app_version_id = match app_version_value {
-            Some(ref v) => Some(
-                self.repos
-                    .app_version
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(ref v) => Some(self.repos.app_version.get_or_create(v)?),
             None => None,
         };
 
@@ -439,12 +386,7 @@ impl DigestReportUseCase {
             .or_else(|| get_release().2.clone());
 
         let app_build_id = match app_build_value {
-            Some(ref v) => Some(
-                self.repos
-                    .app_build
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(ref v) => Some(self.repos.app_build.get_or_create(v)?),
             None => None,
         };
 
@@ -472,12 +414,7 @@ impl DigestReportUseCase {
 
     fn extract_user_info(&self, report: &SentryReport) -> Result<Option<i32>, DomainError> {
         match report.user.as_ref().and_then(|u| u.id.as_ref()) {
-            Some(user_id) => Ok(Some(
-                self.repos
-                    .user
-                    .get_or_create(user_id)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            )),
+            Some(user_id) => Ok(Some(self.repos.user.get_or_create(user_id)?)),
             None => Ok(None),
         }
     }
@@ -490,24 +427,14 @@ impl DigestReportUseCase {
             .and_then(|v| v.first());
 
         let exception_type_id = match exception.and_then(|e| e.exception_type.as_ref()) {
-            Some(v) => Some(
-                self.repos
-                    .exception_type
-                    .get_or_create(v)
-                    .map_err(|e| DomainError::Database(e.to_string()))?,
-            ),
+            Some(v) => Some(self.repos.exception_type.get_or_create(v)?),
             None => None,
         };
 
         let exception_message_id = match exception.and_then(|e| e.value.as_ref()) {
             Some(msg) => {
                 let hash = self.compute_hash(msg.as_bytes());
-                Some(
-                    self.repos
-                        .exception_message
-                        .get_or_create(&hash, msg)
-                        .map_err(|e| DomainError::Database(e.to_string()))?,
-                )
+                Some(self.repos.exception_message.get_or_create(&hash, msg)?)
             }
             None => None,
         };
@@ -548,8 +475,7 @@ impl DigestReportUseCase {
                 Some(
                     self.repos
                         .issue
-                        .get_or_create(fp, exception_type_id, title)
-                        .map_err(|e| DomainError::Database(e.to_string()))?,
+                        .get_or_create(fp, exception_type_id, title)?,
                 )
             }
             None => None,
@@ -564,12 +490,11 @@ impl DigestReportUseCase {
                     .map(|f| serde_json::to_string(f).unwrap_or_default())
                     .unwrap_or_default();
 
-                Some(
-                    self.repos
-                        .stacktrace
-                        .get_or_create(hash, fingerprint_hash.clone(), &frames_json)
-                        .map_err(|e| DomainError::Database(e.to_string()))?,
-                )
+                Some(self.repos.stacktrace.get_or_create(
+                    hash,
+                    fingerprint_hash.clone(),
+                    &frames_json,
+                )?)
             }
             _ => None,
         };

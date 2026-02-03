@@ -57,7 +57,7 @@ pub async fn run_server() {
         repos.project.clone(),
     );
 
-    let digest_use_case = DigestReportUseCase::new(repos.clone(), compressor);
+    let digest_use_case = DigestReportUseCase::new(repos.clone(), pool.clone(), compressor);
 
     let worker = DigestWorker::new(
         digest_use_case,

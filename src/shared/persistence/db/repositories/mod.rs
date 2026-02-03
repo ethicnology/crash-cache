@@ -3,26 +3,26 @@ mod archive_repository;
 mod device_specs_repository;
 mod exception_message_repository;
 mod issue_repository;
-mod unwrap_repository;
 mod project_repository;
 mod queue_repository;
 mod report_repository;
 mod session_repository;
 mod stacktrace_repository;
+mod unwrap_repository;
 
 pub use analytics_repository::AnalyticsRepository;
 pub use archive_repository::ArchiveRepository;
 pub use device_specs_repository::{DeviceSpecsParams, DeviceSpecsRepository};
 pub use exception_message_repository::ExceptionMessageRepository;
 pub use issue_repository::IssueRepository;
-pub use unwrap_repository::*;
 pub use project_repository::ProjectRepository;
-pub use queue_repository::{QueueRepository, QueueErrorRepository};
+pub use queue_repository::{QueueErrorRepository, QueueRepository};
 pub use report_repository::{NewReport, ReportRepository};
 pub use session_repository::*;
 pub use stacktrace_repository::StacktraceRepository;
+pub use unwrap_repository::*;
 
-use super::DbPool;
+use super::{DbConnection, DbPool};
 
 #[derive(Clone)]
 pub struct Repositories {

@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::*;
 use crate::shared::persistence::db::schema::*;
@@ -20,11 +20,18 @@ macro_rules! impl_unwrap_repository {
                 let mut conn = self.pool.get().map_err(|e| {
                     DomainError::ConnectionPool(format!("Connection pool error: {}", e))
                 })?;
+                self.get_or_create_with_conn(&mut conn, val)
+            }
 
+            pub fn get_or_create_with_conn(
+                &self,
+                conn: &mut DbConnection,
+                val: &str,
+            ) -> Result<i32, DomainError> {
                 if let Some(existing) = $table::table
                     .filter($table::value.eq(val))
                     .select($model::as_select())
-                    .first::<$model>(&mut conn)
+                    .first::<$model>(conn)
                     .optional()
                     .map_err(|e| DomainError::Database(e.to_string()))?
                 {
@@ -38,7 +45,7 @@ macro_rules! impl_unwrap_repository {
                 let id = diesel::insert_into($table::table)
                     .values(&new_record)
                     .returning($table::id)
-                    .get_result::<i32>(&mut conn)
+                    .get_result::<i32>(conn)
                     .map_err(|e| DomainError::Database(e.to_string()))?;
 
                 Ok(id)
@@ -48,11 +55,18 @@ macro_rules! impl_unwrap_repository {
                 let mut conn = self.pool.get().map_err(|e| {
                     DomainError::ConnectionPool(format!("Connection pool error: {}", e))
                 })?;
+                self.find_by_id_with_conn(&mut conn, id)
+            }
 
+            pub fn find_by_id_with_conn(
+                &self,
+                conn: &mut DbConnection,
+                id: i32,
+            ) -> Result<Option<$model>, DomainError> {
                 $table::table
                     .filter($table::id.eq(id))
                     .select($model::as_select())
-                    .first::<$model>(&mut conn)
+                    .first::<$model>(conn)
                     .optional()
                     .map_err(|e| DomainError::Database(e.to_string()))
             }
@@ -61,11 +75,18 @@ macro_rules! impl_unwrap_repository {
                 let mut conn = self.pool.get().map_err(|e| {
                     DomainError::ConnectionPool(format!("Connection pool error: {}", e))
                 })?;
+                self.find_by_value_with_conn(&mut conn, val)
+            }
 
+            pub fn find_by_value_with_conn(
+                &self,
+                conn: &mut DbConnection,
+                val: &str,
+            ) -> Result<Option<$model>, DomainError> {
                 $table::table
                     .filter($table::value.eq(val))
                     .select($model::as_select())
-                    .first::<$model>(&mut conn)
+                    .first::<$model>(conn)
                     .optional()
                     .map_err(|e| DomainError::Database(e.to_string()))
             }

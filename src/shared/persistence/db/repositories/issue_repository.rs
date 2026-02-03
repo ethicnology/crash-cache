@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::{IssueModel, NewIssueModel};
 use crate::shared::persistence::db::schema::issue;
@@ -25,11 +25,20 @@ impl IssueRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.get_or_create_with_conn(&mut conn, fingerprint_hash, exception_type_id, title)
+    }
 
+    pub fn get_or_create_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        fingerprint_hash: &str,
+        exception_type_id: Option<i32>,
+        title: Option<String>,
+    ) -> Result<i32, DomainError> {
         if let Some(existing) = issue::table
             .filter(issue::fingerprint_hash.eq(fingerprint_hash))
             .select(IssueModel::as_select())
-            .first::<IssueModel>(&mut conn)
+            .first::<IssueModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))?
         {
@@ -39,7 +48,7 @@ impl IssueRepository {
                     issue::last_seen.eq(now),
                     issue::event_count.eq(existing.event_count + 1),
                 ))
-                .execute(&mut conn)
+                .execute(conn)
                 .map_err(|e| DomainError::Database(e.to_string()))?;
 
             return Ok(existing.id);
@@ -58,7 +67,7 @@ impl IssueRepository {
         let id = diesel::insert_into(issue::table)
             .values(&new_record)
             .returning(issue::id)
-            .get_result::<i32>(&mut conn)
+            .get_result::<i32>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
@@ -72,11 +81,18 @@ impl IssueRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.find_by_fingerprint_with_conn(&mut conn, fingerprint_hash)
+    }
 
+    pub fn find_by_fingerprint_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        fingerprint_hash: &str,
+    ) -> Result<Option<IssueModel>, DomainError> {
         issue::table
             .filter(issue::fingerprint_hash.eq(fingerprint_hash))
             .select(IssueModel::as_select())
-            .first::<IssueModel>(&mut conn)
+            .first::<IssueModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))
     }
@@ -86,11 +102,18 @@ impl IssueRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.find_by_id_with_conn(&mut conn, id)
+    }
 
+    pub fn find_by_id_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        id: i32,
+    ) -> Result<Option<IssueModel>, DomainError> {
         issue::table
             .filter(issue::id.eq(id))
             .select(IssueModel::as_select())
-            .first::<IssueModel>(&mut conn)
+            .first::<IssueModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))
     }
@@ -100,11 +123,17 @@ impl IssueRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.list_all_with_conn(&mut conn)
+    }
 
+    pub fn list_all_with_conn(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<IssueModel>, DomainError> {
         issue::table
             .order(issue::last_seen.desc())
             .select(IssueModel::as_select())
-            .load::<IssueModel>(&mut conn)
+            .load::<IssueModel>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))
     }
 }

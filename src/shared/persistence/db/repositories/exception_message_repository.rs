@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::{
     NewUnwrapExceptionMessageModel, UnwrapExceptionMessageModel,
@@ -21,11 +21,19 @@ impl ExceptionMessageRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.get_or_create_with_conn(&mut conn, hash, value)
+    }
 
+    pub fn get_or_create_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        hash: &str,
+        value: &str,
+    ) -> Result<i32, DomainError> {
         if let Some(existing) = unwrap_exception_message::table
             .filter(unwrap_exception_message::hash.eq(hash))
             .select(UnwrapExceptionMessageModel::as_select())
-            .first::<UnwrapExceptionMessageModel>(&mut conn)
+            .first::<UnwrapExceptionMessageModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))?
         {
@@ -40,7 +48,7 @@ impl ExceptionMessageRepository {
         let id = diesel::insert_into(unwrap_exception_message::table)
             .values(&new_record)
             .returning(unwrap_exception_message::id)
-            .get_result::<i32>(&mut conn)
+            .get_result::<i32>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
@@ -54,11 +62,18 @@ impl ExceptionMessageRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.find_by_hash_with_conn(&mut conn, hash)
+    }
 
+    pub fn find_by_hash_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        hash: &str,
+    ) -> Result<Option<UnwrapExceptionMessageModel>, DomainError> {
         unwrap_exception_message::table
             .filter(unwrap_exception_message::hash.eq(hash))
             .select(UnwrapExceptionMessageModel::as_select())
-            .first::<UnwrapExceptionMessageModel>(&mut conn)
+            .first::<UnwrapExceptionMessageModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))
     }

@@ -1,4 +1,4 @@
-use super::DbPool;
+use super::{DbConnection, DbPool};
 use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::{NewUnwrapDeviceSpecsModel, UnwrapDeviceSpecsModel};
 use crate::shared::persistence::db::schema::unwrap_device_specs;
@@ -31,7 +31,14 @@ impl DeviceSpecsRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.get_or_create_with_conn(&mut conn, params)
+    }
 
+    pub fn get_or_create_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        params: DeviceSpecsParams,
+    ) -> Result<i32, DomainError> {
         let mut query = unwrap_device_specs::table.into_boxed();
 
         query = match params.screen_width {
@@ -65,7 +72,7 @@ impl DeviceSpecsRepository {
 
         let existing = query
             .select(UnwrapDeviceSpecsModel::as_select())
-            .first::<UnwrapDeviceSpecsModel>(&mut conn)
+            .first::<UnwrapDeviceSpecsModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
@@ -86,7 +93,7 @@ impl DeviceSpecsRepository {
         let id = diesel::insert_into(unwrap_device_specs::table)
             .values(&new_record)
             .returning(unwrap_device_specs::id)
-            .get_result::<i32>(&mut conn)
+            .get_result::<i32>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
@@ -97,11 +104,18 @@ impl DeviceSpecsRepository {
             .pool
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
+        self.find_by_id_with_conn(&mut conn, id)
+    }
 
+    pub fn find_by_id_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        id: i32,
+    ) -> Result<Option<UnwrapDeviceSpecsModel>, DomainError> {
         unwrap_device_specs::table
             .filter(unwrap_device_specs::id.eq(id))
             .select(UnwrapDeviceSpecsModel::as_select())
-            .first::<UnwrapDeviceSpecsModel>(&mut conn)
+            .first::<UnwrapDeviceSpecsModel>(conn)
             .optional()
             .map_err(|e| DomainError::Database(e.to_string()))
     }
