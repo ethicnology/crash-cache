@@ -41,9 +41,30 @@ Ingest is optimized for speed: validate, compress, hash, store, respond. Heavy p
 
 ## Quick Start
 
+### Prerequisites
+
+**For PostgreSQL (default):**
 ```bash
-# Build
+# macOS
+brew install postgresql
+
+# Ubuntu/Debian
+sudo apt-get install libpq-dev postgresql
+
+# Fedora/RHEL
+sudo dnf install libpq-devel postgresql
+```
+
+**For SQLite:** No dependencies required.
+
+### Build and Run
+
+```bash
+# Build (PostgreSQL)
 cargo build --release
+
+# Or build with SQLite
+cargo build --release --no-default-features --features sqlite
 
 # Create a project
 crash-cache-cli project create --name "my-app"
