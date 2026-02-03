@@ -28,7 +28,68 @@ use crate::shared::persistence::{
 
 use super::IngestReportUseCase;
 
-const MAX_UNCOMPRESSED_SIZE: usize = 10 * 1024 * 1024;
+/// Maps DomainError to appropriate HTTP status codes and JSON responses
+fn map_domain_error_to_response(error: &DomainError) -> (StatusCode, Json<serde_json::Value>) {
+    match error {
+        DomainError::ProjectNotFound(pid) => {
+            warn!(project_id = %pid, "Project not found");
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("Project {} not found", pid)})),
+            )
+        }
+        DomainError::DuplicateEventId(event_id) => {
+            debug!(event_id = %event_id, "Duplicate event");
+            (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({"error": "Duplicate event", "event_id": event_id})),
+            )
+        }
+        DomainError::Database(msg) => {
+            error!(error = %msg, "Database error");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "Database temporarily unavailable"})),
+            )
+        }
+        DomainError::ConnectionPool(msg) => {
+            error!(error = %msg, "Connection pool exhausted");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "Service temporarily unavailable"})),
+            )
+        }
+        DomainError::Serialization(msg) => {
+            error!(error = %msg, "Serialization error");
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Invalid data format"})),
+            )
+        }
+        DomainError::Compression(msg) | DomainError::Decompression(msg) => {
+            warn!(error = %msg, "Compression/decompression error");
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Invalid payload compression"})),
+            )
+        }
+        DomainError::InvalidRequest(msg) => {
+            warn!(error = %msg, "Invalid request");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": msg})),
+            )
+        }
+        // Catch-all for other errors
+        _ => {
+            error!(error = %error, "Internal error");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Internal server error"})),
+            )
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SentryQueryParams {
@@ -53,6 +114,7 @@ pub struct AppState {
     pub project_repo: ProjectRepository,
     pub health_cache: Arc<RwLock<HealthStats>>,
     pub health_cache_ttl: Duration,
+    pub max_uncompressed_payload_bytes: usize,
     // Session repositories
     pub session_repo: SessionRepository,
     pub session_status_repo: UnwrapSessionStatusRepository,
@@ -97,11 +159,17 @@ async fn store_report(
         return response;
     }
 
-    let (hash, compressed, original_size) =
-        match prepare_payload(&headers, &body, &state.compression_semaphore).await {
-            Ok(result) => result,
-            Err(response) => return response,
-        };
+    let (hash, compressed, original_size) = match prepare_payload(
+        &headers,
+        &body,
+        &state.compression_semaphore,
+        state.max_uncompressed_payload_bytes,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(response) => return response,
+    };
 
     match state
         .ingest_use_case
@@ -111,20 +179,7 @@ async fn store_report(
             info!(hash = %hash, "Report stored successfully");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
-        Err(DomainError::ProjectNotFound(pid)) => {
-            warn!(project_id = %pid, "Project not found, dropping report");
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Project not found"})),
-            )
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to store report");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-        }
+        Err(e) => map_domain_error_to_response(&e),
     }
 }
 
@@ -147,11 +202,17 @@ async fn envelope_report(
         return response;
     }
 
-    let (hash, compressed, original_size) =
-        match prepare_payload(&headers, &body, &state.compression_semaphore).await {
-            Ok(result) => result,
-            Err(response) => return response,
-        };
+    let (hash, compressed, original_size) = match prepare_payload(
+        &headers,
+        &body,
+        &state.compression_semaphore,
+        state.max_uncompressed_payload_bytes,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(response) => return response,
+    };
 
     let decompressed = match decompress(&compressed) {
         Ok(d) => d,
@@ -192,6 +253,8 @@ async fn envelope_report(
         // Session-only envelope - process sessions immediately (no archive/queue)
         let session_payloads = envelope.find_session_payloads();
         let mut sessions_stored = 0;
+        let mut first_error: Option<DomainError> = None;
+
         for session_data in session_payloads {
             if let Some(session) = SentrySession::parse(session_data) {
                 match store_session(&state, project_id, &session) {
@@ -201,10 +264,14 @@ async fn envelope_report(
                     }
                     Err(e) => {
                         warn!(error = %e, sid = %session.sid, "Failed to store session");
+                        if first_error.is_none() {
+                            first_error = Some(e);
+                        }
                     }
                 }
             }
         }
+
         if sessions_stored > 0 {
             info!(sessions_stored = %sessions_stored, "Session-only envelope processed");
             return (
@@ -212,6 +279,12 @@ async fn envelope_report(
                 Json(serde_json::json!({"sessions": sessions_stored})),
             );
         }
+
+        // If we had errors but no successes, return the error
+        if let Some(error) = first_error {
+            return map_domain_error_to_response(&error);
+        }
+
         warn!("No event or session found in envelope");
         return (
             StatusCode::BAD_REQUEST,
@@ -228,20 +301,7 @@ async fn envelope_report(
             info!(hash = %hash, "Envelope archived for digest");
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
-        Err(DomainError::ProjectNotFound(pid)) => {
-            warn!(project_id = %pid, "Project not found, dropping report");
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Project not found"})),
-            )
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to store envelope report");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-        }
+        Err(e) => map_domain_error_to_response(&e),
     }
 }
 
@@ -250,32 +310,19 @@ fn store_session(
     state: &AppState,
     project_id: i32,
     session: &SentrySession,
-) -> Result<i32, String> {
+) -> Result<i32, DomainError> {
     // Get or create status ID
-    let status_id = state
-        .session_status_repo
-        .get_or_create(&session.status)
-        .map_err(|e| e.to_string())?;
+    let status_id = state.session_status_repo.get_or_create(&session.status)?;
 
     // Get or create release ID (optional)
     let release_id = match &session.attrs.release {
-        Some(r) => Some(
-            state
-                .session_release_repo
-                .get_or_create(r)
-                .map_err(|e| e.to_string())?,
-        ),
+        Some(r) => Some(state.session_release_repo.get_or_create(r)?),
         None => None,
     };
 
     // Get or create environment ID (optional)
     let environment_id = match &session.attrs.environment {
-        Some(env) => Some(
-            state
-                .session_environment_repo
-                .get_or_create(env)
-                .map_err(|e| e.to_string())?,
-        ),
+        Some(env) => Some(state.session_environment_repo.get_or_create(env)?),
         None => None,
     };
 
@@ -294,10 +341,7 @@ fn store_session(
         environment_id,
     };
 
-    let session_id = state
-        .session_repo
-        .upsert(new_session)
-        .map_err(|e| e.to_string())?;
+    let session_id = state.session_repo.upsert(new_session)?;
 
     Ok(session_id)
 }
@@ -306,6 +350,7 @@ async fn prepare_payload(
     headers: &HeaderMap,
     body: &[u8],
     semaphore: &Semaphore,
+    max_size: usize,
 ) -> Result<(String, Vec<u8>, Option<i32>), (StatusCode, Json<serde_json::Value>)> {
     let is_gzip = headers
         .get("content-encoding")
@@ -317,11 +362,11 @@ async fn prepare_payload(
         let hash = compute_hash(body);
         Ok((hash, body.to_vec(), None))
     } else {
-        if body.len() > MAX_UNCOMPRESSED_SIZE {
+        if body.len() > max_size {
             return Err((
                 StatusCode::PAYLOAD_TOO_LARGE,
                 Json(serde_json::json!({
-                    "error": format!("Payload too large: {} bytes (max {})", body.len(), MAX_UNCOMPRESSED_SIZE)
+                    "error": format!("Payload too large: {} bytes (max {})", body.len(), max_size)
                 })),
             ));
         }
@@ -430,52 +475,53 @@ fn validate_project_key(
                 Json(serde_json::json!({"error": "Invalid public key"})),
             ))
         }
-        Err(DomainError::ProjectNotFound(pid)) => {
-            warn!(project_id = %pid, "Project not found");
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Project not found"})),
-            ))
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to validate key");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ))
-        }
+        Err(e) => Err(map_domain_error_to_response(&e)),
     }
 }
 
 async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
-    let stats = get_cached_stats(&state);
-
-    Json(serde_json::json!({
-        "status": "ok",
-        "service": "crash-cache",
-        "stats": {
-            "ingested": stats.archives,
-            "digested": stats.reports,
-            "queued": stats.queue,
-            "regurgitated": stats.regurgitated,
-            "orphaned": stats.orphaned
-        }
-    }))
+    match get_cached_stats(&state) {
+        Ok(stats) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "ok",
+                "service": "crash-cache",
+                "stats": {
+                    "ingested": stats.archives,
+                    "digested": stats.reports,
+                    "queued": stats.queue,
+                    "regurgitated": stats.regurgitated,
+                    "orphaned": stats.orphaned
+                }
+            })),
+        ),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "unavailable",
+                "service": "crash-cache",
+                "error": "Database connection unavailable"
+            })),
+        ),
+    }
 }
 
-fn get_cached_stats(state: &AppState) -> HealthStats {
+fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
     {
         let cache = state.health_cache.read().unwrap();
         if let Some(updated_at) = cache.updated_at
             && updated_at.elapsed() < state.health_cache_ttl
         {
-            return cache.clone();
+            return Ok(cache.clone());
         }
     }
 
     let mut conn = match state.pool.get() {
         Ok(c) => c,
-        Err(_) => return HealthStats::default(),
+        Err(e) => {
+            error!(error = %e, "Health check failed: cannot get DB connection");
+            return Err(());
+        }
     };
 
     #[derive(QueryableByName)]
@@ -487,21 +533,33 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
     let archives = sql_query("SELECT COUNT(*) as c FROM archive")
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
+        .map_err(|e| {
+            error!(error = %e, "Failed to query archive count");
+        })
         .unwrap_or(0);
 
     let reports = sql_query("SELECT COUNT(*) as c FROM report")
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
+        .map_err(|e| {
+            error!(error = %e, "Failed to query report count");
+        })
         .unwrap_or(0);
 
     let queue = sql_query("SELECT COUNT(*) as c FROM queue")
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
+        .map_err(|e| {
+            error!(error = %e, "Failed to query queue count");
+        })
         .unwrap_or(0);
 
     let regurgitated = sql_query("SELECT COUNT(*) as c FROM queue_error")
         .get_result::<Count>(&mut conn)
         .map(|r| r.c)
+        .map_err(|e| {
+            error!(error = %e, "Failed to query queue_error count");
+        })
         .unwrap_or(0);
 
     let orphaned = sql_query(
@@ -512,6 +570,9 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
     )
     .get_result::<Count>(&mut conn)
     .map(|r| r.c)
+    .map_err(|e| {
+        error!(error = %e, "Failed to query orphaned count");
+    })
     .unwrap_or(0);
 
     let new_stats = HealthStats {
@@ -527,5 +588,5 @@ fn get_cached_stats(state: &AppState) -> HealthStats {
         *cache = new_stats.clone();
     }
 
-    new_stats
+    Ok(new_stats)
 }

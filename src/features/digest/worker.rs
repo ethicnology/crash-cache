@@ -10,6 +10,7 @@ pub struct DigestWorker {
     digest_use_case: DigestReportUseCase,
     interval_secs: u64,
     processing_budget_secs: u64,
+    batch_size: usize,
     shutdown: Arc<AtomicBool>,
 }
 
@@ -18,11 +19,13 @@ impl DigestWorker {
         digest_use_case: DigestReportUseCase,
         interval_secs: u64,
         processing_budget_secs: u64,
+        batch_size: usize,
     ) -> Self {
         Self {
             digest_use_case,
             interval_secs,
             processing_budget_secs,
+            batch_size,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -56,7 +59,6 @@ impl DigestWorker {
         let start = Instant::now();
         let budget = Duration::from_secs(self.processing_budget_secs);
         let mut total_processed = 0u32;
-        let batch_size = 50;
 
         loop {
             if start.elapsed() >= budget {
@@ -74,7 +76,7 @@ impl DigestWorker {
                 break;
             }
 
-            match self.digest_use_case.process_batch(batch_size) {
+            match self.digest_use_case.process_batch(self.batch_size as i32) {
                 Ok(processed) => {
                     total_processed += processed;
                     if processed == 0 {

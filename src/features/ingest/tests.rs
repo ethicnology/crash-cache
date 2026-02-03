@@ -55,7 +55,7 @@ fn clean_test_db(pool: &crate::shared::persistence::DbPool) {
 }
 
 fn setup_test_db() -> (Repositories, i32) {
-    let pool = establish_connection_pool(&test_database_url());
+    let pool = establish_connection_pool(&test_database_url(), 10, 30);
     run_migrations(&pool);
     clean_test_db(&pool);
     let repos = Repositories::new(pool);

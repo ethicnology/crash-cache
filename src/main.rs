@@ -48,7 +48,11 @@ async fn main() {
         }
         Commands::Project { action } => {
             let settings = Settings::from_env();
-            let pool = establish_connection_pool(&settings.database_url);
+            let pool = establish_connection_pool(
+                &settings.database_url,
+                settings.db_pool_max_size,
+                settings.db_pool_connection_timeout_secs,
+            );
             run_migrations(&pool);
             let project_repo = ProjectRepository::new(pool.clone());
             let server_addr = settings.server_addr();
@@ -56,13 +60,21 @@ async fn main() {
         }
         Commands::Archive { action } => {
             let settings = Settings::from_env();
-            let pool = establish_connection_pool(&settings.database_url);
+            let pool = establish_connection_pool(
+                &settings.database_url,
+                settings.db_pool_max_size,
+                settings.db_pool_connection_timeout_secs,
+            );
             run_migrations(&pool);
             archive::handle(action, &pool);
         }
         Commands::Ruminate { yes } => {
             let settings = Settings::from_env();
-            let pool = establish_connection_pool(&settings.database_url);
+            let pool = establish_connection_pool(
+                &settings.database_url,
+                settings.db_pool_max_size,
+                settings.db_pool_connection_timeout_secs,
+            );
             run_migrations(&pool);
             ruminate::handle(&pool, yes);
         }

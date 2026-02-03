@@ -81,7 +81,7 @@ impl DigestReportUseCase {
 
     fn process_single_item_tx(
         &self,
-        conn: &mut DbConnection,
+        _conn: &mut DbConnection,
         item: &QueueItem,
     ) -> Result<(), DomainError> {
         let archive = self

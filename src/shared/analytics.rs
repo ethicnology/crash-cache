@@ -5,16 +5,23 @@ use tracing::{debug, error, info, warn};
 
 use crate::shared::persistence::AnalyticsRepository;
 
-const CHANNEL_BUFFER_SIZE: usize = 1000;
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 10;
 const DEFAULT_RETENTION_DAYS: i64 = 30;
 
 #[derive(Debug, Clone)]
 pub enum AnalyticsEvent {
     RateLimitGlobal,
-    RateLimitDsn { dsn: String, project_id: Option<i32> },
-    RateLimitSubnet { ip: String },
-    RequestLatency { endpoint: String, latency_ms: u32 },
+    RateLimitDsn {
+        dsn: String,
+        project_id: Option<i32>,
+    },
+    RateLimitSubnet {
+        ip: String,
+    },
+    RequestLatency {
+        endpoint: String,
+        latency_ms: u32,
+    },
 }
 
 #[derive(Default)]
@@ -38,8 +45,13 @@ pub struct AnalyticsCollector {
 }
 
 impl AnalyticsCollector {
-    pub fn new(repo: AnalyticsRepository, flush_interval_secs: Option<u64>, retention_days: Option<i64>) -> Self {
-        let (sender, receiver) = mpsc::channel(CHANNEL_BUFFER_SIZE);
+    pub fn new(
+        repo: AnalyticsRepository,
+        flush_interval_secs: Option<u64>,
+        retention_days: Option<i64>,
+        channel_buffer_size: usize,
+    ) -> Self {
+        let (sender, receiver) = mpsc::channel(channel_buffer_size);
         let flush_interval = flush_interval_secs.unwrap_or(DEFAULT_FLUSH_INTERVAL_SECS);
         let retention = retention_days.unwrap_or(DEFAULT_RETENTION_DAYS);
 
@@ -76,7 +88,10 @@ impl AnalyticsCollector {
     }
 
     pub fn record_request_latency(&self, endpoint: String, latency_ms: u32) {
-        self.record(AnalyticsEvent::RequestLatency { endpoint, latency_ms });
+        self.record(AnalyticsEvent::RequestLatency {
+            endpoint,
+            latency_ms,
+        });
     }
 
     async fn run_collector(
@@ -122,9 +137,13 @@ impl AnalyticsCollector {
                 let subnet = Self::ip_to_subnet(&ip);
                 *buffer.subnet_hits.entry(subnet).or_insert(0) += 1;
             }
-            AnalyticsEvent::RequestLatency { endpoint, latency_ms } => {
+            AnalyticsEvent::RequestLatency {
+                endpoint,
+                latency_ms,
+            } => {
                 let latency = latency_ms as i32;
-                buffer.latency
+                buffer
+                    .latency
                     .entry(endpoint)
                     .and_modify(|stats| {
                         stats.count += 1;

@@ -5,9 +5,9 @@ use std::task::{Context, Poll};
 use std::time::Instant;
 use tower::{Layer, Service};
 use tower_governor::{
+    GovernorError, GovernorLayer,
     governor::GovernorConfigBuilder,
     key_extractor::{GlobalKeyExtractor, KeyExtractor, SmartIpKeyExtractor},
-    GovernorError, GovernorLayer,
 };
 
 use crate::shared::analytics::AnalyticsCollector;
@@ -63,7 +63,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -99,7 +101,10 @@ pub enum RateLimitType {
 
 impl RateLimitAnalyticsLayer {
     pub fn new(collector: AnalyticsCollector, limit_type: RateLimitType) -> Self {
-        Self { collector, limit_type }
+        Self {
+            collector,
+            limit_type,
+        }
     }
 }
 
@@ -129,7 +134,9 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -140,7 +147,8 @@ where
         let limit_type = self.limit_type;
         let mut inner = self.inner.clone();
 
-        let ip = req.extensions()
+        let ip = req
+            .extensions()
             .get::<axum::extract::ConnectInfo<SocketAddr>>()
             .map(|ci| ci.0.ip().to_string());
         let dsn = {
@@ -199,14 +207,17 @@ pub type GlobalRateLimitLayer = GovernorLayer<
 >;
 
 /// Creates a GovernorLayer for per-IP rate limiting using SmartIpKeyExtractor
-pub fn create_ip_rate_limiter(requests_per_sec: u64) -> Option<IpRateLimitLayer> {
+pub fn create_ip_rate_limiter(
+    requests_per_sec: u64,
+    burst_multiplier: u32,
+) -> Option<IpRateLimitLayer> {
     if requests_per_sec == 0 {
         return None;
     }
 
     let config = GovernorConfigBuilder::default()
         .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * 2)
+        .burst_size(requests_per_sec as u32 * burst_multiplier)
         .key_extractor(SmartIpKeyExtractor)
         .finish()?;
 
@@ -214,14 +225,17 @@ pub fn create_ip_rate_limiter(requests_per_sec: u64) -> Option<IpRateLimitLayer>
 }
 
 /// Creates a GovernorLayer for per-project rate limiting
-pub fn create_project_rate_limiter(requests_per_sec: u64) -> Option<ProjectRateLimitLayer> {
+pub fn create_project_rate_limiter(
+    requests_per_sec: u64,
+    burst_multiplier: u32,
+) -> Option<ProjectRateLimitLayer> {
     if requests_per_sec == 0 {
         return None;
     }
 
     let config = GovernorConfigBuilder::default()
         .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * 2)
+        .burst_size(requests_per_sec as u32 * burst_multiplier)
         .key_extractor(ProjectKeyExtractor)
         .finish()?;
 
@@ -229,14 +243,17 @@ pub fn create_project_rate_limiter(requests_per_sec: u64) -> Option<ProjectRateL
 }
 
 /// Creates a GovernorLayer for global rate limiting
-pub fn create_global_rate_limiter(requests_per_sec: u64) -> Option<GlobalRateLimitLayer> {
+pub fn create_global_rate_limiter(
+    requests_per_sec: u64,
+    burst_multiplier: u32,
+) -> Option<GlobalRateLimitLayer> {
     if requests_per_sec == 0 {
         return None;
     }
 
     let config = GovernorConfigBuilder::default()
         .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * 2)
+        .burst_size(requests_per_sec as u32 * burst_multiplier)
         .key_extractor(GlobalKeyExtractor)
         .finish()?;
 

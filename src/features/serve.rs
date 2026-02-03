@@ -22,8 +22,6 @@ use crate::shared::rate_limit::{
     create_ip_rate_limiter, create_project_rate_limiter,
 };
 
-const MAX_BODY_SIZE: usize = 1024 * 1024; // 1 MB
-
 pub async fn run_server() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -33,7 +31,11 @@ pub async fn run_server() {
     let settings = Settings::from_env();
     info!("Starting crash-cache server");
 
-    let pool = establish_connection_pool(&settings.database_url);
+    let pool = establish_connection_pool(
+        &settings.database_url,
+        settings.db_pool_max_size,
+        settings.db_pool_connection_timeout_secs,
+    );
     run_migrations(&pool);
     info!("Database initialized");
 
@@ -44,6 +46,7 @@ pub async fn run_server() {
         repos.analytics.clone(),
         Some(settings.analytics_flush_interval_secs),
         Some(settings.analytics_retention_days),
+        settings.analytics_channel_buffer_size,
     );
     info!(
         flush_interval = settings.analytics_flush_interval_secs,
@@ -63,6 +66,7 @@ pub async fn run_server() {
         digest_use_case,
         settings.worker_interval_secs,
         settings.worker_budget_secs,
+        settings.digest_batch_size,
     );
     let shutdown_handle = worker.shutdown_handle();
 
@@ -83,6 +87,7 @@ pub async fn run_server() {
         project_repo: repos.project.clone(),
         health_cache: Arc::new(RwLock::new(HealthStats::default())),
         health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
+        max_uncompressed_payload_bytes: settings.max_uncompressed_payload_bytes,
         // Session repositories
         session_repo: repos.session.clone(),
         session_status_repo: repos.session_status.clone(),
@@ -98,10 +103,13 @@ pub async fn run_server() {
     );
 
     let mut api_router = create_api_router(app_state.clone())
-        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+        .layer(DefaultBodyLimit::max(settings.max_compressed_payload_bytes))
         .layer(AnalyticsLayer::new(analytics_collector.clone()));
 
-    if let Some(layer) = create_ip_rate_limiter(settings.rate_limit_per_ip_per_sec) {
+    if let Some(layer) = create_ip_rate_limiter(
+        settings.rate_limit_per_ip_per_sec,
+        settings.rate_limit_burst_multiplier,
+    ) {
         api_router = api_router
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
@@ -111,7 +119,10 @@ pub async fn run_server() {
         info!("Per-IP rate limiter enabled");
     }
 
-    if let Some(layer) = create_project_rate_limiter(settings.rate_limit_per_project_per_sec) {
+    if let Some(layer) = create_project_rate_limiter(
+        settings.rate_limit_per_project_per_sec,
+        settings.rate_limit_burst_multiplier,
+    ) {
         api_router = api_router
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
@@ -121,7 +132,10 @@ pub async fn run_server() {
         info!("Per-project rate limiter enabled");
     }
 
-    if let Some(layer) = create_global_rate_limiter(settings.rate_limit_global_per_sec) {
+    if let Some(layer) = create_global_rate_limiter(
+        settings.rate_limit_global_per_sec,
+        settings.rate_limit_burst_multiplier,
+    ) {
         api_router = api_router
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),

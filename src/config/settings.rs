@@ -15,6 +15,18 @@ pub struct Settings {
     // Analytics
     pub analytics_flush_interval_secs: u64,
     pub analytics_retention_days: i64,
+    // Database connection pool
+    pub db_pool_max_size: u32,
+    pub db_pool_connection_timeout_secs: u64,
+    // Request payload limits
+    pub max_compressed_payload_bytes: usize,
+    pub max_uncompressed_payload_bytes: usize,
+    // Digest worker
+    pub digest_batch_size: usize,
+    // Rate limiting burst multipliers
+    pub rate_limit_burst_multiplier: u32,
+    // Analytics channel buffer
+    pub analytics_channel_buffer_size: usize,
 }
 
 impl Settings {
@@ -64,6 +76,34 @@ impl Settings {
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
                 .expect("ANALYTICS_RETENTION_DAYS must be a valid number"),
+            db_pool_max_size: env::var("DB_POOL_MAX_SIZE")
+                .expect("DB_POOL_MAX_SIZE must be set")
+                .parse()
+                .expect("DB_POOL_MAX_SIZE must be a valid number"),
+            db_pool_connection_timeout_secs: env::var("DB_POOL_CONNECTION_TIMEOUT_SECS")
+                .expect("DB_POOL_CONNECTION_TIMEOUT_SECS must be set")
+                .parse()
+                .expect("DB_POOL_CONNECTION_TIMEOUT_SECS must be a valid number"),
+            max_compressed_payload_bytes: env::var("MAX_COMPRESSED_PAYLOAD_BYTES")
+                .expect("MAX_COMPRESSED_PAYLOAD_BYTES must be set")
+                .parse()
+                .expect("MAX_COMPRESSED_PAYLOAD_BYTES must be a valid number"),
+            max_uncompressed_payload_bytes: env::var("MAX_UNCOMPRESSED_PAYLOAD_BYTES")
+                .expect("MAX_UNCOMPRESSED_PAYLOAD_BYTES must be set")
+                .parse()
+                .expect("MAX_UNCOMPRESSED_PAYLOAD_BYTES must be a valid number"),
+            digest_batch_size: env::var("DIGEST_BATCH_SIZE")
+                .expect("DIGEST_BATCH_SIZE must be set")
+                .parse()
+                .expect("DIGEST_BATCH_SIZE must be a valid number"),
+            rate_limit_burst_multiplier: env::var("RATE_LIMIT_BURST_MULTIPLIER")
+                .expect("RATE_LIMIT_BURST_MULTIPLIER must be set")
+                .parse()
+                .expect("RATE_LIMIT_BURST_MULTIPLIER must be a valid number"),
+            analytics_channel_buffer_size: env::var("ANALYTICS_CHANNEL_BUFFER_SIZE")
+                .expect("ANALYTICS_CHANNEL_BUFFER_SIZE must be set")
+                .parse()
+                .expect("ANALYTICS_CHANNEL_BUFFER_SIZE must be a valid number"),
         }
     }
 
