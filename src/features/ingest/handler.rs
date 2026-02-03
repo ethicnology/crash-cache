@@ -11,6 +11,7 @@ use diesel::sql_query;
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -98,12 +99,43 @@ pub struct SentryQueryParams {
 
 #[derive(Clone, Default)]
 pub struct HealthStats {
-    archives: i64,
-    reports: i64,
-    queue: i64,
-    regurgitated: i64,
-    orphaned: i64,
+    pub(crate) archives: i64,
+    pub(crate) reports: i64,
+    pub(crate) queue: i64,
+    pub(crate) regurgitated: i64,
+    pub(crate) orphaned: i64,
+    #[allow(dead_code)]
     updated_at: Option<Instant>,
+}
+
+#[derive(Clone)]
+pub struct ProjectCache {
+    data: Arc<RwLock<HashMap<i32, (String, Instant)>>>, // project_id -> (public_key, cached_at)
+    ttl: Duration,
+}
+
+impl ProjectCache {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            data: Arc::new(RwLock::new(HashMap::new())),
+            ttl,
+        }
+    }
+
+    pub fn get(&self, project_id: i32) -> Option<String> {
+        let cache = self.data.read().unwrap();
+        if let Some((key, cached_at)) = cache.get(&project_id)
+            && cached_at.elapsed() < self.ttl
+        {
+            return Some(key.clone());
+        }
+        None
+    }
+
+    pub fn insert(&self, project_id: i32, public_key: String) {
+        let mut cache = self.data.write().unwrap();
+        cache.insert(project_id, (public_key, Instant::now()));
+    }
 }
 
 #[derive(Clone)]
@@ -112,6 +144,7 @@ pub struct AppState {
     pub compression_semaphore: Arc<Semaphore>,
     pub pool: DbPool,
     pub project_repo: ProjectRepository,
+    pub project_cache: ProjectCache,
     pub health_cache: Arc<RwLock<HealthStats>>,
     pub health_cache_ttl: Duration,
     pub max_uncompressed_payload_bytes: usize,
@@ -167,9 +200,13 @@ async fn store_report(
 
     // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
-    if let Err(response) =
-        validate_project_key(&state.project_repo, &mut conn, project_id, sentry_key)
-    {
+    if let Err(response) = validate_project_key(
+        &state.project_repo,
+        &state.project_cache,
+        &mut conn,
+        project_id,
+        sentry_key,
+    ) {
         return response;
     }
 
@@ -227,9 +264,13 @@ async fn envelope_report(
 
     // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
-    if let Err(response) =
-        validate_project_key(&state.project_repo, &mut conn, project_id, sentry_key)
-    {
+    if let Err(response) = validate_project_key(
+        &state.project_repo,
+        &state.project_cache,
+        &mut conn,
+        project_id,
+        sentry_key,
+    ) {
         return response;
     }
 
@@ -488,6 +529,7 @@ fn extract_sentry_key(headers: &HeaderMap, query: &SentryQueryParams) -> Option<
 
 fn validate_project_key(
     project_repo: &ProjectRepository,
+    project_cache: &ProjectCache,
     conn: &mut crate::shared::persistence::DbConnection,
     project_id: i32,
     sentry_key: Option<String>,
@@ -502,10 +544,24 @@ fn validate_project_key(
         }
     };
 
-    debug!(project_id = %project_id, received_key = %key, "Validating public key");
+    // Check cache first
+    if let Some(cached_key) = project_cache.get(project_id)
+        && cached_key == key
+    {
+        debug!(project_id = %project_id, "Project cache hit");
+        return Ok(());
+    }
+    // Cached key doesn't match or cache miss - fall through to DB validation
+
+    // Cache miss or mismatch - query DB
+    debug!(project_id = %project_id, "Project cache miss, validating from DB");
 
     match project_repo.validate_key(conn, project_id, &key) {
-        Ok(true) => Ok(()),
+        Ok(true) => {
+            // Valid - update cache
+            project_cache.insert(project_id, key);
+            Ok(())
+        }
         Ok(false) => {
             warn!(project_id = %project_id, received_key = %key, "Invalid public key");
             Err((
@@ -518,50 +574,25 @@ fn validate_project_key(
 }
 
 async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
-    match get_cached_stats(&state) {
-        Ok(stats) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "ok",
-                "service": "crash-cache",
-                "stats": {
-                    "ingested": stats.archives,
-                    "digested": stats.reports,
-                    "queued": stats.queue,
-                    "regurgitated": stats.regurgitated,
-                    "orphaned": stats.orphaned
-                }
-            })),
-        ),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "status": "unavailable",
-                "service": "crash-cache",
-                "error": "Database connection unavailable"
-            })),
-        ),
-    }
+    let cache = state.health_cache.read().unwrap();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "service": "crash-cache",
+            "stats": {
+                "ingested": cache.archives,
+                "digested": cache.reports,
+                "queued": cache.queue,
+                "regurgitated": cache.regurgitated,
+                "orphaned": cache.orphaned
+            }
+        })),
+    )
 }
 
-fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
-    {
-        let cache = state.health_cache.read().unwrap();
-        if let Some(updated_at) = cache.updated_at
-            && updated_at.elapsed() < state.health_cache_ttl
-        {
-            return Ok(cache.clone());
-        }
-    }
-
-    let mut conn = match state.pool.get() {
-        Ok(c) => c,
-        Err(e) => {
-            error!(error = %e, "Health check failed: cannot get DB connection");
-            return Err(());
-        }
-    };
-
+pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection) -> HealthStats {
     #[derive(QueryableByName)]
     struct Count {
         #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -569,7 +600,7 @@ fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
     }
 
     let archives = sql_query("SELECT COUNT(*) as c FROM archive")
-        .get_result::<Count>(&mut conn)
+        .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
             error!(error = %e, "Failed to query archive count");
@@ -577,7 +608,7 @@ fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
         .unwrap_or(0);
 
     let reports = sql_query("SELECT COUNT(*) as c FROM report")
-        .get_result::<Count>(&mut conn)
+        .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
             error!(error = %e, "Failed to query report count");
@@ -585,7 +616,7 @@ fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
         .unwrap_or(0);
 
     let queue = sql_query("SELECT COUNT(*) as c FROM queue")
-        .get_result::<Count>(&mut conn)
+        .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
             error!(error = %e, "Failed to query queue count");
@@ -593,38 +624,23 @@ fn get_cached_stats(state: &AppState) -> Result<HealthStats, ()> {
         .unwrap_or(0);
 
     let regurgitated = sql_query("SELECT COUNT(*) as c FROM queue_error")
-        .get_result::<Count>(&mut conn)
+        .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
             error!(error = %e, "Failed to query queue_error count");
         })
         .unwrap_or(0);
 
-    let orphaned = sql_query(
-        "SELECT COUNT(*) as c FROM archive a
-         WHERE NOT EXISTS (SELECT 1 FROM report r WHERE r.archive_hash = a.hash)
-         AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)
-         AND NOT EXISTS (SELECT 1 FROM queue_error e WHERE e.archive_hash = a.hash)",
-    )
-    .get_result::<Count>(&mut conn)
-    .map(|r| r.c)
-    .map_err(|e| {
-        error!(error = %e, "Failed to query orphaned count");
-    })
-    .unwrap_or(0);
+    // Calculate orphaned instead of querying (much faster!)
+    // Orphaned = archives not in reports, queue, or queue_error
+    let orphaned = archives - reports - queue - regurgitated;
 
-    let new_stats = HealthStats {
+    HealthStats {
         archives,
         reports,
         queue,
         regurgitated,
         orphaned,
         updated_at: Some(Instant::now()),
-    };
-
-    if let Ok(mut cache) = state.health_cache.write() {
-        *cache = new_stats.clone();
     }
-
-    Ok(new_stats)
 }

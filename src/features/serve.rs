@@ -74,10 +74,51 @@ pub async fn run_server() {
         worker.run().await;
     });
 
+    // Spawn health stats refresh task
+    let health_cache = Arc::new(RwLock::new(HealthStats::default()));
+    let health_cache_for_task = health_cache.clone();
+    let pool_for_health = pool.clone();
+    let health_refresh_interval = Duration::from_secs(settings.worker_interval_secs);
+
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(health_refresh_interval).await;
+
+            // Refresh stats in blocking task to avoid blocking Tokio threads
+            let cache = health_cache_for_task.clone();
+            let pool = pool_for_health.clone();
+
+            tokio::task::spawn_blocking(move || {
+                if let Ok(mut conn) = pool.get() {
+                    let stats = crate::features::ingest::compute_health_stats(&mut conn);
+                    if let Ok(mut cache_guard) = cache.write() {
+                        *cache_guard = stats;
+                    }
+                }
+            })
+            .await
+            .ok();
+        }
+    });
+
+    info!(
+        "Health stats refresh task started (interval: {}s)",
+        settings.worker_interval_secs
+    );
+
     let compression_semaphore = Arc::new(Semaphore::new(settings.max_concurrent_compressions));
     info!(
         max_concurrent_compressions = settings.max_concurrent_compressions,
         "Compression semaphore initialized"
+    );
+
+    // Use worker_interval_secs as cache TTL (reuse existing setting)
+    let project_cache = crate::features::ingest::ProjectCache::new(Duration::from_secs(
+        settings.worker_interval_secs,
+    ));
+    info!(
+        project_cache_ttl_secs = settings.worker_interval_secs,
+        "Project cache initialized"
     );
 
     let app_state = AppState {
@@ -85,7 +126,8 @@ pub async fn run_server() {
         compression_semaphore,
         pool,
         project_repo: repos.project.clone(),
-        health_cache: Arc::new(RwLock::new(HealthStats::default())),
+        project_cache,
+        health_cache,
         health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
         max_uncompressed_payload_bytes: settings.max_uncompressed_payload_bytes,
         // Session repositories
