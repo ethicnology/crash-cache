@@ -173,17 +173,9 @@ impl SentryReport {
 
     pub fn extract_in_app_frames(&self) -> Vec<&SentryStacktraceFrame> {
         let mut frames = Vec::new();
-        if let Some(values) = self
-            .exception
-            .as_ref()
-            .and_then(|e| e.values.as_ref())
-        {
+        if let Some(values) = self.exception.as_ref().and_then(|e| e.values.as_ref()) {
             for value in values {
-                if let Some(st_frames) = value
-                    .stacktrace
-                    .as_ref()
-                    .and_then(|s| s.frames.as_ref())
-                {
+                if let Some(st_frames) = value.stacktrace.as_ref().and_then(|s| s.frames.as_ref()) {
                     for frame in st_frames {
                         if frame.in_app.unwrap_or(false) {
                             frames.push(frame);

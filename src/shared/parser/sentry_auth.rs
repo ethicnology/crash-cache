@@ -63,7 +63,9 @@ pub struct SentryDsn {
 
 impl SentryDsn {
     pub fn parse(dsn: &str) -> Option<Self> {
-        let dsn = dsn.strip_prefix("http://").or_else(|| dsn.strip_prefix("https://"))?;
+        let dsn = dsn
+            .strip_prefix("http://")
+            .or_else(|| dsn.strip_prefix("https://"))?;
 
         let (auth_part, rest) = dsn.split_once('@')?;
         let (public_key, secret_key) = if auth_part.contains(':') {

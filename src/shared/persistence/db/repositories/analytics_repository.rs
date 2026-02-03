@@ -1,13 +1,14 @@
-use chrono::{NaiveDateTime, Utc, Timelike};
 use super::DbPool;
+use chrono::{NaiveDateTime, Timelike, Utc};
 use diesel::prelude::*;
 
-use crate::shared::persistence::db::schema::{
-    bucket_rate_limit_global, bucket_rate_limit_dsn, bucket_rate_limit_subnet, bucket_request_latency,
-};
 use crate::shared::persistence::db::models::{
-    NewBucketRateLimitGlobalModel, NewBucketRateLimitDsnModel,
-    NewBucketRateLimitSubnetModel, NewBucketRequestLatencyModel,
+    NewBucketRateLimitDsnModel, NewBucketRateLimitGlobalModel, NewBucketRateLimitSubnetModel,
+    NewBucketRequestLatencyModel,
+};
+use crate::shared::persistence::db::schema::{
+    bucket_rate_limit_dsn, bucket_rate_limit_global, bucket_rate_limit_subnet,
+    bucket_request_latency,
 };
 
 #[derive(Clone)]
@@ -26,7 +27,10 @@ impl AnalyticsRepository {
     }
 
     pub fn record_rate_limit_global(&self) -> Result<(), diesel::result::Error> {
-        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
         let bucket = Self::bucket_start();
 
         diesel::insert_into(bucket_rate_limit_global::table)
@@ -42,8 +46,15 @@ impl AnalyticsRepository {
         Ok(())
     }
 
-    pub fn record_rate_limit_dsn(&self, dsn: &str, project_id: Option<i32>) -> Result<(), diesel::result::Error> {
-        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+    pub fn record_rate_limit_dsn(
+        &self,
+        dsn: &str,
+        project_id: Option<i32>,
+    ) -> Result<(), diesel::result::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
         let bucket = Self::bucket_start();
 
         diesel::insert_into(bucket_rate_limit_dsn::table)
@@ -53,7 +64,10 @@ impl AnalyticsRepository {
                 bucket_start: bucket,
                 hit_count: 1,
             })
-            .on_conflict((bucket_rate_limit_dsn::dsn, bucket_rate_limit_dsn::bucket_start))
+            .on_conflict((
+                bucket_rate_limit_dsn::dsn,
+                bucket_rate_limit_dsn::bucket_start,
+            ))
             .do_update()
             .set(bucket_rate_limit_dsn::hit_count.eq(bucket_rate_limit_dsn::hit_count + 1))
             .execute(&mut conn)?;
@@ -63,7 +77,10 @@ impl AnalyticsRepository {
 
     pub fn record_rate_limit_subnet(&self, ip: &str) -> Result<(), diesel::result::Error> {
         let subnet = Self::ip_to_subnet(ip);
-        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
         let bucket = Self::bucket_start();
 
         diesel::insert_into(bucket_rate_limit_subnet::table)
@@ -72,7 +89,10 @@ impl AnalyticsRepository {
                 bucket_start: bucket,
                 hit_count: 1,
             })
-            .on_conflict((bucket_rate_limit_subnet::subnet, bucket_rate_limit_subnet::bucket_start))
+            .on_conflict((
+                bucket_rate_limit_subnet::subnet,
+                bucket_rate_limit_subnet::bucket_start,
+            ))
             .do_update()
             .set(bucket_rate_limit_subnet::hit_count.eq(bucket_rate_limit_subnet::hit_count + 1))
             .execute(&mut conn)?;
@@ -80,15 +100,25 @@ impl AnalyticsRepository {
         Ok(())
     }
 
-    pub fn record_request_latency(&self, endpoint: &str, latency_ms: u32) -> Result<(), diesel::result::Error> {
-        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+    pub fn record_request_latency(
+        &self,
+        endpoint: &str,
+        latency_ms: u32,
+    ) -> Result<(), diesel::result::Error> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
         let bucket = Self::bucket_start();
         let latency = latency_ms as i32;
 
         let existing = bucket_request_latency::table
             .filter(bucket_request_latency::endpoint.eq(endpoint))
             .filter(bucket_request_latency::bucket_start.eq(bucket))
-            .select((bucket_request_latency::min_ms, bucket_request_latency::max_ms))
+            .select((
+                bucket_request_latency::min_ms,
+                bucket_request_latency::max_ms,
+            ))
             .first::<(Option<i32>, Option<i32>)>(&mut conn)
             .optional()?;
 
@@ -101,8 +131,10 @@ impl AnalyticsRepository {
                     .filter(bucket_request_latency::endpoint.eq(endpoint))
                     .filter(bucket_request_latency::bucket_start.eq(bucket))
                     .set((
-                        bucket_request_latency::request_count.eq(bucket_request_latency::request_count + 1),
-                        bucket_request_latency::total_ms.eq(bucket_request_latency::total_ms + latency),
+                        bucket_request_latency::request_count
+                            .eq(bucket_request_latency::request_count + 1),
+                        bucket_request_latency::total_ms
+                            .eq(bucket_request_latency::total_ms + latency),
                         bucket_request_latency::min_ms.eq(new_min),
                         bucket_request_latency::max_ms.eq(new_max),
                     ))
@@ -126,26 +158,35 @@ impl AnalyticsRepository {
     }
 
     pub fn cleanup_old_buckets(&self, retention_days: i64) -> Result<usize, diesel::result::Error> {
-        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
         let cutoff = Utc::now().naive_utc() - chrono::Duration::days(retention_days);
 
         let mut total = 0;
 
-        total += diesel::delete(bucket_rate_limit_global::table.filter(
-            bucket_rate_limit_global::bucket_start.lt(cutoff)
-        )).execute(&mut conn)?;
+        total += diesel::delete(
+            bucket_rate_limit_global::table
+                .filter(bucket_rate_limit_global::bucket_start.lt(cutoff)),
+        )
+        .execute(&mut conn)?;
 
-        total += diesel::delete(bucket_rate_limit_dsn::table.filter(
-            bucket_rate_limit_dsn::bucket_start.lt(cutoff)
-        )).execute(&mut conn)?;
+        total += diesel::delete(
+            bucket_rate_limit_dsn::table.filter(bucket_rate_limit_dsn::bucket_start.lt(cutoff)),
+        )
+        .execute(&mut conn)?;
 
-        total += diesel::delete(bucket_rate_limit_subnet::table.filter(
-            bucket_rate_limit_subnet::bucket_start.lt(cutoff)
-        )).execute(&mut conn)?;
+        total += diesel::delete(
+            bucket_rate_limit_subnet::table
+                .filter(bucket_rate_limit_subnet::bucket_start.lt(cutoff)),
+        )
+        .execute(&mut conn)?;
 
-        total += diesel::delete(bucket_request_latency::table.filter(
-            bucket_request_latency::bucket_start.lt(cutoff)
-        )).execute(&mut conn)?;
+        total += diesel::delete(
+            bucket_request_latency::table.filter(bucket_request_latency::bucket_start.lt(cutoff)),
+        )
+        .execute(&mut conn)?;
 
         Ok(total)
     }

@@ -44,7 +44,10 @@ pub fn handle(command: ProjectCommand, repo: &ProjectRepository, server_addr: &s
                 if projects.is_empty() {
                     println!("No projects found");
                 } else {
-                    println!("{:<20} {:<34} {:<30} {:<20}", "ID", "PUBLIC_KEY", "NAME", "CREATED AT");
+                    println!(
+                        "{:<20} {:<34} {:<30} {:<20}",
+                        "ID", "PUBLIC_KEY", "NAME", "CREATED AT"
+                    );
                     println!("{}", "-".repeat(110));
                     for p in projects {
                         println!(

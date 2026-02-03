@@ -10,7 +10,12 @@ pub struct Archive {
 }
 
 impl Archive {
-    pub fn new(hash: String, project_id: i32, compressed_payload: Vec<u8>, original_size: Option<i32>) -> Self {
+    pub fn new(
+        hash: String,
+        project_id: i32,
+        compressed_payload: Vec<u8>,
+        original_size: Option<i32>,
+    ) -> Self {
         Self {
             hash,
             project_id,

@@ -58,14 +58,17 @@ impl Envelope {
             };
 
             let payload = if let Some(length) = item_header.length {
-                let remaining: Vec<u8> = lines.clone().flat_map(|l| {
-                    let mut v = l.to_vec();
-                    v.push(b'\n');
-                    v
-                }).collect();
-                
+                let remaining: Vec<u8> = lines
+                    .clone()
+                    .flat_map(|l| {
+                        let mut v = l.to_vec();
+                        v.push(b'\n');
+                        v
+                    })
+                    .collect();
+
                 let payload = remaining.get(..length)?.to_vec();
-                
+
                 let mut consumed = 0;
                 while consumed < length {
                     if let Some(line) = lines.next() {

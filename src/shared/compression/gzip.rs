@@ -1,5 +1,5 @@
-use flate2::read::{GzDecoder, GzEncoder};
 use flate2::Compression;
+use flate2::read::{GzDecoder, GzEncoder};
 use std::io::Read;
 
 use crate::shared::domain::DomainError;
