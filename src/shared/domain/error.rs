@@ -5,6 +5,9 @@ pub enum DomainError {
     #[error("Database error: {0}")]
     Database(String),
 
+    #[error("Connection pool error: {0}")]
+    ConnectionPool(String),
+
     #[error("Compression error: {0}")]
     Compression(String),
 

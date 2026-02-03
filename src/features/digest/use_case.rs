@@ -224,11 +224,11 @@ impl DigestReportUseCase {
         get_or_create_fn: F,
     ) -> Result<Option<i32>, DomainError>
     where
-        F: FnOnce(&str) -> Result<i32, diesel::result::Error>,
+        F: FnOnce(&str) -> Result<i32, DomainError>,
     {
         match value {
             Some(v) if !v.is_empty() => {
-                let id = get_or_create_fn(v).map_err(|e| DomainError::Database(e.to_string()))?;
+                let id = get_or_create_fn(v)?;
                 Ok(Some(id))
             }
             _ => Ok(None),

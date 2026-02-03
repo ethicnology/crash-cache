@@ -1,8 +1,8 @@
 use super::DbPool;
-use diesel::prelude::*;
-
+use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::{NewUnwrapDeviceSpecsModel, UnwrapDeviceSpecsModel};
 use crate::shared::persistence::db::schema::unwrap_device_specs;
+use diesel::prelude::*;
 
 /// Parameters for device specifications lookup/creation
 #[derive(Default, Clone)]
@@ -26,8 +26,11 @@ impl DeviceSpecsRepository {
         Self { pool }
     }
 
-    pub fn get_or_create(&self, params: DeviceSpecsParams) -> Result<i32, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn get_or_create(&self, params: DeviceSpecsParams) -> Result<i32, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         let mut query = unwrap_device_specs::table.into_boxed();
 
@@ -63,7 +66,8 @@ impl DeviceSpecsRepository {
         let existing = query
             .select(UnwrapDeviceSpecsModel::as_select())
             .first::<UnwrapDeviceSpecsModel>(&mut conn)
-            .optional()?;
+            .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         if let Some(existing) = existing {
             return Ok(existing.id);
@@ -81,26 +85,29 @@ impl DeviceSpecsRepository {
 
         diesel::insert_into(unwrap_device_specs::table)
             .values(&new_record)
-            .execute(&mut conn)?;
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let id = unwrap_device_specs::table
             .select(unwrap_device_specs::id)
             .order(unwrap_device_specs::id.desc())
-            .first::<i32>(&mut conn)?;
+            .first::<i32>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(id)
     }
 
-    pub fn find_by_id(
-        &self,
-        id: i32,
-    ) -> Result<Option<UnwrapDeviceSpecsModel>, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn find_by_id(&self, id: i32) -> Result<Option<UnwrapDeviceSpecsModel>, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         unwrap_device_specs::table
             .filter(unwrap_device_specs::id.eq(id))
             .select(UnwrapDeviceSpecsModel::as_select())
             .first::<UnwrapDeviceSpecsModel>(&mut conn)
             .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))
     }
 }

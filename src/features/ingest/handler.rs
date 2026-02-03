@@ -255,7 +255,7 @@ fn store_session(
     let status_id = state
         .session_status_repo
         .get_or_create(&session.status)
-        .map_err(|e: diesel::result::Error| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     // Get or create release ID (optional)
     let release_id = match &session.attrs.release {
@@ -263,7 +263,7 @@ fn store_session(
             state
                 .session_release_repo
                 .get_or_create(r)
-                .map_err(|e: diesel::result::Error| e.to_string())?,
+                .map_err(|e| e.to_string())?,
         ),
         None => None,
     };
@@ -274,7 +274,7 @@ fn store_session(
             state
                 .session_environment_repo
                 .get_or_create(env)
-                .map_err(|e: diesel::result::Error| e.to_string())?,
+                .map_err(|e| e.to_string())?,
         ),
         None => None,
     };
@@ -297,7 +297,7 @@ fn store_session(
     let session_id = state
         .session_repo
         .upsert(new_session)
-        .map_err(|e: diesel::result::Error| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     Ok(session_id)
 }

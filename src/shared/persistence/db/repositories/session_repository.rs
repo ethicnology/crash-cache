@@ -1,10 +1,8 @@
-use diesel::prelude::*;
 use super::DbPool;
-
-
+use crate::shared::domain::DomainError;
 use crate::shared::persistence::db::models::*;
 use crate::shared::persistence::db::schema::*;
-
+use diesel::prelude::*;
 
 // ============================================
 // SESSION UNWRAP REPOSITORIES
@@ -22,14 +20,17 @@ macro_rules! impl_session_unwrap_repository {
                 Self { pool }
             }
 
-            pub fn get_or_create(&self, val: &str) -> Result<i32, diesel::result::Error> {
-                let mut conn = self.pool.get().expect("Failed to get connection");
+            pub fn get_or_create(&self, val: &str) -> Result<i32, DomainError> {
+                let mut conn = self.pool.get().map_err(|e| {
+                    DomainError::ConnectionPool(format!("Connection pool error: {}", e))
+                })?;
 
                 if let Some(existing) = $table::table
                     .filter($table::value.eq(val))
                     .select($model::as_select())
                     .first::<$model>(&mut conn)
-                    .optional()?
+                    .optional()
+                    .map_err(|e| DomainError::Database(e.to_string()))?
                 {
                     return Ok(existing.id);
                 }
@@ -40,24 +41,29 @@ macro_rules! impl_session_unwrap_repository {
 
                 diesel::insert_into($table::table)
                     .values(&new_record)
-                    .execute(&mut conn)?;
+                    .execute(&mut conn)
+                    .map_err(|e| DomainError::Database(e.to_string()))?;
 
                 let inserted = $table::table
                     .filter($table::value.eq(val))
                     .select($model::as_select())
-                    .first::<$model>(&mut conn)?;
+                    .first::<$model>(&mut conn)
+                    .map_err(|e| DomainError::Database(e.to_string()))?;
 
                 Ok(inserted.id)
             }
 
-            pub fn find_by_id(&self, id: i32) -> Result<Option<$model>, diesel::result::Error> {
-                let mut conn = self.pool.get().expect("Failed to get connection");
+            pub fn find_by_id(&self, id: i32) -> Result<Option<$model>, DomainError> {
+                let mut conn = self.pool.get().map_err(|e| {
+                    DomainError::ConnectionPool(format!("Connection pool error: {}", e))
+                })?;
 
                 $table::table
                     .filter($table::id.eq(id))
                     .select($model::as_select())
                     .first::<$model>(&mut conn)
                     .optional()
+                    .map_err(|e| DomainError::Database(e.to_string()))
             }
         }
     };
@@ -100,8 +106,11 @@ impl SessionRepository {
 
     /// Creates or updates a session. Uses INSERT OR REPLACE on (project_id, sid).
     /// Returns the session ID.
-    pub fn upsert(&self, new_session: NewSessionModel) -> Result<i32, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn upsert(&self, new_session: NewSessionModel) -> Result<i32, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         // Check if session already exists
         if let Some(existing) = session::table
@@ -109,7 +118,8 @@ impl SessionRepository {
             .filter(session::sid.eq(&new_session.sid))
             .select(SessionModel::as_select())
             .first::<SessionModel>(&mut conn)
-            .optional()?
+            .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))?
         {
             // Update existing session
             diesel::update(session::table.filter(session::id.eq(existing.id)))
@@ -122,7 +132,8 @@ impl SessionRepository {
                     session::release_id.eq(new_session.release_id),
                     session::environment_id.eq(new_session.environment_id),
                 ))
-                .execute(&mut conn)?;
+                .execute(&mut conn)
+                .map_err(|e| DomainError::Database(e.to_string()))?;
 
             return Ok(existing.id);
         }
@@ -130,19 +141,28 @@ impl SessionRepository {
         // Insert new session
         diesel::insert_into(session::table)
             .values(&new_session)
-            .execute(&mut conn)?;
+            .execute(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         let inserted = session::table
             .filter(session::project_id.eq(new_session.project_id))
             .filter(session::sid.eq(&new_session.sid))
             .select(SessionModel::as_select())
-            .first::<SessionModel>(&mut conn)?;
+            .first::<SessionModel>(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))?;
 
         Ok(inserted.id)
     }
 
-    pub fn find_by_sid(&self, project_id: i32, sid: &str) -> Result<Option<SessionModel>, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn find_by_sid(
+        &self,
+        project_id: i32,
+        sid: &str,
+    ) -> Result<Option<SessionModel>, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         session::table
             .filter(session::project_id.eq(project_id))
@@ -150,24 +170,33 @@ impl SessionRepository {
             .select(SessionModel::as_select())
             .first::<SessionModel>(&mut conn)
             .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))
     }
 
-    pub fn count_by_project(&self, project_id: i32) -> Result<i64, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn count_by_project(&self, project_id: i32) -> Result<i64, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         session::table
             .filter(session::project_id.eq(project_id))
             .count()
             .get_result(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))
     }
 
-    pub fn count_by_status(&self, project_id: i32, status_id: i32) -> Result<i64, diesel::result::Error> {
-        let mut conn = self.pool.get().expect("Failed to get connection");
+    pub fn count_by_status(&self, project_id: i32, status_id: i32) -> Result<i64, DomainError> {
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
         session::table
             .filter(session::project_id.eq(project_id))
             .filter(session::status_id.eq(status_id))
             .count()
             .get_result(&mut conn)
+            .map_err(|e| DomainError::Database(e.to_string()))
     }
 }
