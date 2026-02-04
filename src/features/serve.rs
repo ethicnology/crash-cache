@@ -33,8 +33,8 @@ pub async fn run_server() {
 
     let pool = establish_connection_pool(
         &settings.database_url,
-        settings.db_pool_max_size,
-        settings.db_pool_connection_timeout_secs,
+        settings.db_pool_size,
+        settings.db_pool_timeout_secs,
     );
     run_migrations(&pool);
     info!("Database initialized");
@@ -46,7 +46,7 @@ pub async fn run_server() {
         repos.analytics.clone(),
         Some(settings.analytics_flush_interval_secs),
         Some(settings.analytics_retention_days),
-        settings.analytics_channel_buffer_size,
+        settings.analytics_buffer_size,
     );
     info!(
         flush_interval = settings.analytics_flush_interval_secs,
@@ -65,8 +65,8 @@ pub async fn run_server() {
     let worker = DigestWorker::new(
         digest_use_case,
         settings.worker_interval_secs,
-        settings.worker_budget_secs,
-        settings.digest_batch_size,
+        settings.worker_budget_secs(),
+        settings.worker_batch_size,
     );
     let shutdown_handle = worker.shutdown_handle();
 
@@ -128,7 +128,7 @@ pub async fn run_server() {
         project_repo: repos.project.clone(),
         project_cache,
         health_cache,
-        health_cache_ttl: Duration::from_secs(settings.health_cache_ttl_secs),
+        health_cache_ttl: Duration::from_secs(settings.worker_interval_secs),
         max_uncompressed_payload_bytes: settings.max_uncompressed_payload_bytes,
         // Session repositories
         session_repo: repos.session.clone(),
