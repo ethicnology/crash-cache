@@ -50,7 +50,6 @@ impl DigestReportUseCase {
             match self.process_single_item(&item) {
                 Ok(()) => {
                     processed_count += 1;
-                    info!(archive_hash = %item.archive_hash, "Successfully processed report");
                 }
                 Err(DomainError::DuplicateEventId(event_id)) => {
                     info!(

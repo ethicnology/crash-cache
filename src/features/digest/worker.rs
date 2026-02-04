@@ -82,7 +82,6 @@ impl DigestWorker {
                     if processed == 0 {
                         break;
                     }
-                    info!(processed = processed, "Batch processed");
                 }
                 Err(e) => {
                     warn!(error = %e, "Error processing batch (continuing)");

@@ -16,7 +16,6 @@ use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
-use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 
 use crate::shared::domain::DomainError;
@@ -162,7 +161,6 @@ pub fn create_api_router(state: AppState) -> Router {
         .route("/api/{project_id}/store", post(store_report))
         .route("/api/{project_id}/envelope/", post(envelope_report))
         .route("/api/{project_id}/envelope", post(envelope_report))
-        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
