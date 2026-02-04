@@ -281,6 +281,7 @@ erDiagram
 | **Unwrap** | 20 `unwrap_*` tables | Deduplicated string values (normalized) |
 | **Issue** | `issue` | Error grouping by fingerprint |
 | **Main** | `report` | Central table with 22 FK references |
+| **Analytics** | `bucket_rate_limit_global`, `bucket_rate_limit_dsn`, `bucket_rate_limit_subnet`, `bucket_request_latency` | Aggregated metrics for rate limiting and request performance |
 
 ## Data Flow
 
@@ -315,6 +316,59 @@ flowchart LR
 
 **Note:** Sessions in event envelopes are processed during digest (not ingest), ensuring atomic processing of related data.
 
+## Analytics Tables
+
+### bucket_rate_limit_global
+Tracks global request rate over time.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| bucket_start | TIMESTAMP | Start of time bucket (UNIQUE) |
+| hit_count | INTEGER | Number of requests in bucket |
+
+### bucket_rate_limit_dsn
+Tracks per-project/DSN request rate.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| dsn | TEXT | Project DSN key |
+| project_id | INTEGER | Project ID (nullable) |
+| bucket_start | TIMESTAMP | Start of time bucket |
+| hit_count | INTEGER | Number of requests in bucket |
+
+**UNIQUE:** (dsn, bucket_start)
+
+### bucket_rate_limit_subnet
+Tracks per-IP/subnet request rate.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| subnet | TEXT | IP address or subnet |
+| bucket_start | TIMESTAMP | Start of time bucket |
+| hit_count | INTEGER | Number of requests in bucket |
+
+**UNIQUE:** (subnet, bucket_start)
+
+### bucket_request_latency
+Aggregated request latency metrics per endpoint.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| endpoint | TEXT | API endpoint path |
+| bucket_start | TIMESTAMP | Start of time bucket |
+| request_count | INTEGER | Number of requests |
+| total_ms | INTEGER | Total latency (milliseconds) |
+| min_ms | INTEGER | Minimum latency (nullable) |
+| max_ms | INTEGER | Maximum latency (nullable) |
+
+**UNIQUE:** (endpoint, bucket_start)
+
+**Note:** These tables are automatically cleaned up based on `ANALYTICS_RETENTION_DAYS` configuration.
+
 ## Indexes
 
 | Index | Table | Column(s) | Purpose |
@@ -329,3 +383,7 @@ flowchart LR
 | `idx_session_status` | session | status_id | Filter sessions by status |
 | `idx_session_sid` | session | sid | Find session by sid |
 | `idx_report_session` | report | session_id | Find reports by session |
+| `idx_bucket_rate_limit_global_start` | bucket_rate_limit_global | bucket_start | Time-based cleanup |
+| `idx_bucket_rate_limit_dsn_start` | bucket_rate_limit_dsn | bucket_start | Time-based cleanup |
+| `idx_bucket_rate_limit_subnet_start` | bucket_rate_limit_subnet | bucket_start | Time-based cleanup |
+| `idx_bucket_request_latency_start` | bucket_request_latency | bucket_start | Time-based cleanup |

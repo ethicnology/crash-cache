@@ -17,6 +17,8 @@ Sentry's hosted service is expensive at scale. Self-hosting official Sentry requ
 - **Proper HTTP semantics** - Correct status codes (503 for DB issues, 422 for compression, etc.)
 - **Fully configurable** - All limits and timeouts configurable via environment variables
 - **Production-ready** - No panics, comprehensive error handling, transactional processing
+- **Bundled dependencies** - No system libpq or openssl required (bundled via Cargo.toml)
+- **Docker ready** - Full docker-compose setup with PostgreSQL and Metabase analytics
 
 ## Architecture
 
@@ -45,54 +47,166 @@ Ingest is optimized for speed: validate, compress, hash, store, respond. Heavy p
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker Compose (Recommended)
 
-**PostgreSQL:**
+**Prerequisites:**
+- Docker and Docker Compose
+- 2GB+ RAM available
+
+**Steps:**
+
+1. Clone and configure:
 ```bash
-# macOS (installs libpq and optionally postgresql server)
-brew install libpq
-# Add to PATH: export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
+git clone https://github.com/ethicnology/crash-cache.git
+cd crash-cache
 
-# Ubuntu/Debian (libpq-dev for building, postgresql for running locally)
-sudo apt-get install libpq-dev
-# Optional: sudo apt-get install postgresql  (if running DB locally)
-
-# Fedora/RHEL
-sudo dnf install libpq-devel
-# Optional: sudo dnf install postgresql  (if running DB locally)
+# Copy and edit environment file
+cp .env.example .env
+# Edit .env: Change POSTGRES_PASSWORD and METABASE_PASSWORD
 ```
 
-### Build and Run
-
+2. Start all services:
 ```bash
-# Build
-cargo build --release
+docker-compose up -d
+```
 
-# Create a project
-crash-cache-cli project create --name "my-app"
+This starts three services:
+- **PostgreSQL** (port 5432) - Database with separate users for crash-cache and Metabase
+- **crash-cache-server** (port 3000) - API server
+- **Metabase** (port 3001) - Analytics dashboard
+
+3. Create a project:
+```bash
+docker exec -it crash-cache-server crash-cache project create --name "my-app"
 # Output: DSN: http://<key>@localhost:3000/<project_id>
-
-# Run server
-crash-cache
-
-# Configure your Sentry SDK with the DSN
 ```
+
+4. Configure your Sentry SDK with the DSN from step 3.
+
+5. Access Metabase at http://localhost:3001 for analytics dashboards
+   - Connect to PostgreSQL: host=postgres, database=crash_cache, user=metabase_readonly
+
+### Option 2: Native Build
+
+**Prerequisites:**
+- Rust 1.70+ (install via [rustup](https://rustup.rs/))
+- PostgreSQL server running
+- **No system libpq or openssl required** - dependencies are bundled
+
+**Steps:**
+
+1. Clone and build:
+```bash
+git clone https://github.com/ethicnology/crash-cache.git
+cd crash-cache
+cargo build --release
+```
+
+2. Configure:
+```bash
+cp .env.example .env
+# Edit .env: Set DATABASE_URL to your PostgreSQL connection string
+```
+
+3. Create a project:
+```bash
+./target/release/crash-cache project create --name "my-app"
+# Output: DSN: http://<key>@localhost:3000/<project_id>
+```
+
+4. Run server:
+```bash
+./target/release/crash-cache serve
+```
+
+5. Configure your Sentry SDK with the DSN from step 3.
 
 ## Configuration
 
-Environment variables (or `.env` file):
+All configuration is done via environment variables (or `.env` file). See `.env.example` for complete documentation.
 
-| Variable | Default | Description |
+### Core Settings
+
+| Variable | Example | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql://user:pass@localhost/crash_cache` | PostgreSQL connection string |
 | `SERVER_HOST` | `0.0.0.0` | Listen host |
 | `SERVER_PORT` | `3000` | Listen port |
+
+### Database Connection Pool
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `DATABASE_POOL_SIZE` | `30` | Connection pool size (adjust based on load) |
+| `DATABASE_POOL_TIMEOUT_SECS` | `20` | Connection timeout before returning 503 |
+
+### Payload Limits
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `MAX_COMPRESSED_PAYLOAD_BYTES` | `50 * 1024` | Max gzip payload size (50KB) |
+| `MAX_UNCOMPRESSED_PAYLOAD_BYTES` | `200 * 1024` | Max raw JSON size (200KB) |
+
+### Worker Settings
+
+| Variable | Example | Description |
+|----------|---------|-------------|
 | `WORKER_INTERVAL_SECS` | `60` | Digest worker interval (also: cache TTL) |
-| `WORKER_BUDGET_SECS` | `50` | Max processing time per tick |
-| `MAX_CONCURRENT_COMPRESSIONS` | `16` | Concurrent compression limit |
-| `RATE_LIMIT_GLOBAL_PER_SEC` | `100` | Global requests/sec (0=off) |
-| `RATE_LIMIT_PER_IP_PER_SEC` | `10` | Per-IP requests/sec (0=off) |
-| `RATE_LIMIT_PER_PROJECT_PER_SEC` | `50` | Per-project requests/sec (0=off) |
+| `WORKER_REPORTS_BATCH_SIZE` | `100` | Reports to process per worker cycle |
+
+### Concurrency
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `MAX_CONCURRENT_COMPRESSIONS` | `12` | CPU-intensive compression limit (2-3x cores) |
+
+### Rate Limiting
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_REQUESTS_PER_SEC` | `800` | Global requests/sec (0=disabled) |
+| `RATE_LIMIT_PER_IP_PER_SEC` | `30` | Per-IP requests/sec (0=disabled) |
+| `RATE_LIMIT_PER_PROJECT_PER_SEC` | `500` | Per-project requests/sec (0=disabled) |
+| `RATE_LIMIT_BURST_MULTIPLIER` | `2` | Allow bursts (2x = double limit for bursts) |
+
+### Analytics
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `ANALYTICS_FLUSH_INTERVAL_SECS` | `10` | How often to flush metrics to DB |
+| `ANALYTICS_RETENTION_DAYS` | `30` | Auto-delete analytics older than N days |
+| `ANALYTICS_BUFFER_SIZE` | `20000` | Internal channel buffer (RPS × flush × 2) |
+
+**See `.env.example` for detailed configuration profiles (SMALL/MEDIUM/LARGE workloads).**
+
+## Docker Compose Architecture
+
+The `docker-compose.yml` provides a complete deployment:
+
+```yaml
+Services:
+  postgres:
+    - Main database (crash_cache DB)
+    - Metabase storage (metabase DB)
+    - Three users:
+      * crash_cache (app user)
+      * metabase_app (Metabase admin)
+      * metabase_readonly (analytics queries)
+  
+  crash-cache-server:
+    - API server on port 3000
+    - Health checks every 30s
+    - Auto-restarts on failure
+  
+  metabase:
+    - Analytics UI on port 3001
+    - Connect to crash_cache DB with metabase_readonly user
+```
+
+**Security Features:**
+- Separate passwords for postgres and Metabase (set in `.env`)
+- Read-only database user for analytics queries
+- No exposed credentials (all via environment variables)
 
 ## API Endpoints
 
@@ -100,29 +214,37 @@ Environment variables (or `.env` file):
 |----------|-------------|
 | `POST /api/{project_id}/store/` | Sentry store endpoint (JSON) |
 | `POST /api/{project_id}/envelope/` | Sentry envelope endpoint |
-| `GET /health` | Health check with stats |
+| `GET /health` | Health check with cached stats |
 
-## CLI
+## CLI Commands
 
 ```bash
-crash-cache-cli project create [--name NAME] [--key KEY]
-crash-cache-cli project list
-crash-cache-cli project delete <id>
-crash-cache-cli ruminate [--yes]  # Reprocess all archives
+# Server
+crash-cache serve                      # Start the API server
+
+# Project management
+crash-cache project create [--name NAME] [--key KEY]
+crash-cache project list
+crash-cache project delete <id>
+
+# Archive management
+crash-cache archive export [-o FILE]   # Export to JSONL
+crash-cache archive import [-i FILE]   # Import from JSONL
+crash-cache ruminate                   # Re-digest all archives
 ```
 
 ## Database
 
 PostgreSQL with normalized schema:
 
-- `archive` - Compressed payloads
-- `queue` / `queue_error` - Processing queue
+- `archive` - Compressed payloads (content-addressed by hash)
+- `queue` / `queue_error` - Async processing queue
 - `report` - Normalized crash data (~25 dimension FKs)
-- `issue` - Grouped by stack fingerprint
-- `unwrap_*` - Dimension tables (platform, os, device, app, etc.)
+- `issue` - Error grouping by stack fingerprint
+- `unwrap_*` - Dimension tables (platform, os, device, app, etc.) - 20+ tables
 - `session` - Release health tracking
 
-Migrations run automatically on startup.
+**Migrations run automatically on startup.** See [docs/schema.md](docs/schema.md) for full details.
 
 ## Performance & Reliability
 
@@ -134,10 +256,11 @@ Migrations run automatically on startup.
 - **PostgreSQL RETURNING** - Eliminates follow-up SELECT queries after INSERT
 - **Transaction support** - Reduces 24+ transactions per event to 1
 - **Semaphore limiting** - Controls CPU-bound compression concurrency
-- **Single connection per request** - HTTP handlers use one connection throughout the request lifecycle
+- **Single connection per request** - HTTP handlers use one connection throughout request lifecycle
 - **Background health refresh** - Health endpoint returns cached stats (no DB queries in request path)
 - **Project validation cache** - 60-second TTL cache reduces repeated project key lookups
 - **Calculated metrics** - Orphaned archives computed via arithmetic instead of expensive queries
+- **Bundled dependencies** - pq-sys and openssl-sys bundled to avoid system dependency issues
 
 ### Reliability Features
 - **No panics** - All repository `.expect()` calls eliminated
@@ -146,6 +269,12 @@ Migrations run automatically on startup.
 - **Proper error codes** - Database issues return 503, compression errors return 422
 - **Graceful degradation** - Health check returns 503 when DB unavailable
 - **Error propagation** - Session failures properly return HTTP errors
+
+### Build Optimizations
+- **Memory-efficient Docker build** - Reduced opt-level for dependencies avoids OOM
+- **Single-job builds** - `CARGO_BUILD_JOBS=1` prevents memory exhaustion
+- **Bundled native libraries** - No system libpq or openssl dependencies required
+- **Multi-stage Docker** - Minimal runtime image with only necessary components
 
 ## SDK Integration
 
@@ -166,9 +295,41 @@ crash-cache accepts standard Sentry SDK payloads. Configure any Sentry SDK with 
 | iOS | https://docs.sentry.io/platforms/apple/ |
 | Android | https://docs.sentry.io/platforms/android/ |
 
-Replace the DSN in the SDK configuration with the one from `crash-cache-cli project create`.
+Replace the DSN in the SDK configuration with the one from `crash-cache project create`.
+
+## Analytics with Metabase
+
+When using Docker Compose, Metabase is automatically deployed for analytics dashboards:
+
+1. Access Metabase at http://localhost:3001
+2. Complete initial setup (create admin account)
+3. Add PostgreSQL database connection:
+   - **Database type:** PostgreSQL
+   - **Host:** postgres
+   - **Port:** 5432
+   - **Database name:** crash_cache
+   - **Username:** metabase_readonly
+   - **Password:** (your METABASE_PASSWORD from .env)
+
+The `metabase_readonly` user has SELECT-only access to the crash_cache database for security.
+
+**Example dashboards you can build:**
+- Error rate by project/platform/version over time
+- Top issues by event count
+- User impact analysis (unique users affected)
+- Session health metrics (crash-free sessions rate)
+- Geographic distribution of errors
 
 ## Recent Improvements
+
+### Deployment & Build (v0.4.0)
+- **Bundled dependencies** - pq-sys and openssl-sys now bundled (no system libpq/openssl needed)
+- **Docker Compose setup** - Complete three-service deployment (postgres, crash-cache, metabase)
+- **Single .env file** - Unified configuration for all services
+- **Optimized Docker build** - Memory-efficient compilation (reduced opt-level, single job)
+- **Metabase integration** - Built-in analytics dashboard support with read-only user
+- **Security improvements** - Separate passwords for postgres and metabase
+- **Configuration consolidation** - Removed old variable names, standardized naming
 
 ### Concurrency Optimizations (v0.3.0)
 - **Background health stats** - Health endpoint now returns cached stats refreshed every 60s
@@ -195,11 +356,10 @@ Replace the DSN in the SDK configuration with the one from `crash-cache-cli proj
 - **Health check** - Returns 503 when database is unavailable
 
 ### Configuration Management (v0.2.0)
-- **7 new parameters** - Database pool, payload limits, batch sizes, rate limiting
-- **No defaults** - All configuration explicit in `.env` file
-- **Fully tunable** - Optimize for your workload and infrastructure
-
-See [CHANGELOG.md](CHANGELOG.md) for complete details.
+- **Comprehensive configuration** - Database pool, payload limits, batch sizes, rate limiting, analytics
+- **Environment variable support** - All configuration via .env file
+- **Backward compatibility** - Automatic fallback to old variable names with deprecation warnings
+- **Expression parsing** - Supports multiplication expressions (e.g., `50 * 1024` for readability)
 
 ## License
 
