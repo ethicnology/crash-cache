@@ -1,0 +1,127 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:18-trixie
+    container_name: crash-cache-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: crash_cache
+      POSTGRES_USER: crash_cache
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crash_cache"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crash-cache-network
+    command: |
+      bash -c "
+        docker-entrypoint.sh postgres &
+        PG_PID=$$!
+        until pg_isready -U crash_cache; do sleep 1; done
+
+        psql -U crash_cache -d crash_cache -c 'CREATE USER metabase_app WITH PASSWORD '\''${METABASE_PASSWORD}'\'';' || true
+        psql -U crash_cache -d crash_cache -c 'CREATE DATABASE metabase OWNER metabase_app;' || true
+        psql -U crash_cache -d crash_cache -c 'CREATE USER metabase_readonly WITH PASSWORD '\''${METABASE_PASSWORD}'\'';' || true
+        psql -U crash_cache -d crash_cache -c 'GRANT CONNECT ON DATABASE crash_cache TO metabase_readonly;' || true
+        psql -U crash_cache -d crash_cache -c 'GRANT USAGE ON SCHEMA public TO metabase_readonly;' || true
+        psql -U crash_cache -d crash_cache -c 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO metabase_readonly;' || true
+        psql -U crash_cache -d crash_cache -c 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO metabase_readonly;' || true
+
+        wait $$PG_PID
+      "
+
+  crash-cache-server:
+    image: crash-cache:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crash-cache-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://crash_cache:${POSTGRES_PASSWORD}@postgres:5432/crash_cache
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE}
+      DATABASE_POOL_TIMEOUT_SECS: ${DATABASE_POOL_TIMEOUT_SECS}
+
+      # Server
+      SERVER_HOST: ${SERVER_HOST}
+      SERVER_PORT: ${SERVER_PORT}
+
+      # Payload limits
+      MAX_COMPRESSED_PAYLOAD_BYTES: ${MAX_COMPRESSED_PAYLOAD_BYTES}
+      MAX_UNCOMPRESSED_PAYLOAD_BYTES: ${MAX_UNCOMPRESSED_PAYLOAD_BYTES}
+
+      # Worker
+      WORKER_INTERVAL_SECS: ${WORKER_INTERVAL_SECS}
+      WORKER_REPORTS_BATCH_SIZE: ${WORKER_REPORTS_BATCH_SIZE}
+
+      # Concurrency
+      MAX_CONCURRENT_COMPRESSIONS: ${MAX_CONCURRENT_COMPRESSIONS}
+
+      # Rate limiting
+      RATE_LIMIT_REQUESTS_PER_SEC: ${RATE_LIMIT_REQUESTS_PER_SEC}
+      RATE_LIMIT_PER_IP_PER_SEC: ${RATE_LIMIT_PER_IP_PER_SEC}
+      RATE_LIMIT_PER_PROJECT_PER_SEC: ${RATE_LIMIT_PER_PROJECT_PER_SEC}
+      RATE_LIMIT_BURST_MULTIPLIER: ${RATE_LIMIT_BURST_MULTIPLIER}
+
+      # Analytics
+      ANALYTICS_FLUSH_INTERVAL_SECS: ${ANALYTICS_FLUSH_INTERVAL_SECS}
+      ANALYTICS_RETENTION_DAYS: ${ANALYTICS_RETENTION_DAYS}
+      ANALYTICS_BUFFER_SIZE: ${ANALYTICS_BUFFER_SIZE}
+    ports:
+      - "3000:3000"
+    networks:
+      - crash-cache-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: crash-cache-metabase
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase_app
+      MB_DB_PASS: ${METABASE_PASSWORD}
+      MB_DB_HOST: postgres
+    ports:
+      - "3001:3000"
+    volumes:
+      - metabase_data:/metabase-data
+    networks:
+      - crash-cache-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data:
+    driver: local
+  metabase_data:
+    driver: local
+
+networks:
+  crash-cache-network:
+    driver: bridge
