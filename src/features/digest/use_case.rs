@@ -1,6 +1,6 @@
 use diesel::Connection;
 use sha2::{Digest, Sha256};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryReport};
@@ -233,10 +233,7 @@ impl DigestReportUseCase {
         };
 
         match self.repos.session.upsert(conn, new_session) {
-            Ok(session_id) => {
-                debug!(sid = %session.sid, session_id = %session_id, status = %session.status, "Session stored during digest");
-                Ok(Some(session_id))
-            }
+            Ok(session_id) => Ok(Some(session_id)),
             Err(e) => {
                 warn!(error = %e, sid = %session.sid, "Failed to store session during digest");
                 Ok(None)

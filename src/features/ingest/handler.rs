@@ -180,6 +180,8 @@ async fn store_report(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+
     info!(
         project_id = %project_id,
         payload_size = body.len(),
@@ -230,10 +232,28 @@ async fn store_report(
         original_size,
     ) {
         Ok(_) => {
-            info!(hash = %hash, "Report stored successfully");
+            let duration_ms = start.elapsed().as_millis();
+            info!(
+                project_id = %project_id,
+                hash = %hash,
+                status = 200,
+                duration_ms = duration_ms,
+                "Report stored successfully"
+            );
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
-        Err(e) => map_domain_error_to_response(&e),
+        Err(e) => {
+            let duration_ms = start.elapsed().as_millis();
+            let response = map_domain_error_to_response(&e);
+            warn!(
+                project_id = %project_id,
+                status = response.0.as_u16(),
+                duration_ms = duration_ms,
+                error = ?e,
+                "Report storage failed"
+            );
+            response
+        }
     }
 }
 
@@ -244,6 +264,8 @@ async fn envelope_report(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+
     info!(
         project_id = %project_id,
         payload_size = body.len(),
@@ -308,16 +330,6 @@ async fn envelope_report(
         }
     };
 
-    info!(
-        "Envelope has {} items: {:?}",
-        envelope.items.len(),
-        envelope
-            .items
-            .iter()
-            .map(|i| (&i.header.item_type, i.payload.len()))
-            .collect::<Vec<_>>()
-    );
-
     // Check for event payload
     let has_event = envelope.find_event_payload().is_some();
 
@@ -330,9 +342,8 @@ async fn envelope_report(
         for session_data in session_payloads {
             if let Some(session) = SentrySession::parse(session_data) {
                 match store_session(&state, &mut conn, project_id, &session) {
-                    Ok(sid_id) => {
+                    Ok(_sid_id) => {
                         sessions_stored += 1;
-                        debug!(sid = %session.sid, sid_id = %sid_id, status = %session.status, "Session stored");
                     }
                     Err(e) => {
                         warn!(error = %e, sid = %session.sid, "Failed to store session");
@@ -345,7 +356,14 @@ async fn envelope_report(
         }
 
         if sessions_stored > 0 {
-            info!(sessions_stored = %sessions_stored, "Session-only envelope processed");
+            let duration_ms = start.elapsed().as_millis();
+            info!(
+                project_id = %project_id,
+                sessions_stored = sessions_stored,
+                status = 200,
+                duration_ms = duration_ms,
+                "Session-only envelope processed"
+            );
             return (
                 StatusCode::OK,
                 Json(serde_json::json!({"sessions": sessions_stored})),
@@ -354,10 +372,25 @@ async fn envelope_report(
 
         // If we had errors but no successes, return the error
         if let Some(error) = first_error {
-            return map_domain_error_to_response(&error);
+            let duration_ms = start.elapsed().as_millis();
+            let response = map_domain_error_to_response(&error);
+            warn!(
+                project_id = %project_id,
+                status = response.0.as_u16(),
+                duration_ms = duration_ms,
+                error = ?error,
+                "Session processing failed"
+            );
+            return response;
         }
 
-        warn!("No event or session found in envelope");
+        let duration_ms = start.elapsed().as_millis();
+        warn!(
+            project_id = %project_id,
+            status = 400,
+            duration_ms = duration_ms,
+            "No event or session found in envelope"
+        );
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "No event or session in envelope"})),
@@ -373,10 +406,28 @@ async fn envelope_report(
         original_size,
     ) {
         Ok(_) => {
-            info!(hash = %hash, "Envelope archived for digest");
+            let duration_ms = start.elapsed().as_millis();
+            info!(
+                project_id = %project_id,
+                hash = %hash,
+                status = 200,
+                duration_ms = duration_ms,
+                "Envelope archived for digest"
+            );
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
-        Err(e) => map_domain_error_to_response(&e),
+        Err(e) => {
+            let duration_ms = start.elapsed().as_millis();
+            let response = map_domain_error_to_response(&e);
+            warn!(
+                project_id = %project_id,
+                status = response.0.as_u16(),
+                duration_ms = duration_ms,
+                error = ?e,
+                "Envelope storage failed"
+            );
+            response
+        }
     }
 }
 
@@ -451,6 +502,7 @@ async fn prepare_payload(
 
         let permit = semaphore.try_acquire();
         if permit.is_err() {
+            warn!("Compression semaphore exhausted - service overloaded");
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "Service overloaded, please retry"})),
@@ -503,27 +555,22 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
 fn extract_sentry_key(headers: &HeaderMap, query: &SentryQueryParams) -> Option<String> {
     // Try query param first
     if let Some(key) = &query.sentry_key {
-        debug!(key = %key, "Found sentry_key in query params");
         return Some(key.clone());
     }
 
     // Try X-Sentry-Auth header
     if let Some(auth_header) = headers.get("X-Sentry-Auth").and_then(|v| v.to_str().ok()) {
-        debug!(header = %auth_header, "Parsing X-Sentry-Auth header");
         for part in auth_header.split(',') {
             let part = part.trim();
             if let Some(key) = part.strip_prefix("Sentry sentry_key=") {
-                debug!(key = %key, "Extracted key from 'Sentry sentry_key=' prefix");
                 return Some(key.to_string());
             }
             if let Some(key) = part.strip_prefix("sentry_key=") {
-                debug!(key = %key, "Extracted key from 'sentry_key=' prefix");
                 return Some(key.to_string());
             }
         }
     }
 
-    debug!("No sentry_key found in request");
     None
 }
 
@@ -548,13 +595,9 @@ fn validate_project_key(
     if let Some(cached_key) = project_cache.get(project_id)
         && cached_key == key
     {
-        debug!(project_id = %project_id, "Project cache hit");
         return Ok(());
     }
     // Cached key doesn't match or cache miss - fall through to DB validation
-
-    // Cache miss or mismatch - query DB
-    debug!(project_id = %project_id, "Project cache miss, validating from DB");
 
     match project_repo.validate_key(conn, project_id, &key) {
         Ok(true) => {
@@ -603,7 +646,7 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
-            error!(error = %e, "Failed to query archive count");
+            warn!(error = %e, "Failed to query archive count");
         })
         .unwrap_or(0);
 
@@ -611,7 +654,7 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
-            error!(error = %e, "Failed to query report count");
+            warn!(error = %e, "Failed to query report count");
         })
         .unwrap_or(0);
 
@@ -619,7 +662,7 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
-            error!(error = %e, "Failed to query queue count");
+            warn!(error = %e, "Failed to query queue count");
         })
         .unwrap_or(0);
 
@@ -627,7 +670,7 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         .get_result::<Count>(conn)
         .map(|r| r.c)
         .map_err(|e| {
-            error!(error = %e, "Failed to query queue_error count");
+            warn!(error = %e, "Failed to query queue_error count");
         })
         .unwrap_or(0);
 

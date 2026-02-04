@@ -142,14 +142,14 @@ impl Settings {
         }
 
         // For numeric types, try parsing multiplication expressions
-        if value.contains('*') {
-            if let Some(result) = Self::parse_multiplication(value) {
-                // This is a bit tricky - we need to convert usize to T
-                // This works for usize, u64, u32, etc.
-                return format!("{}", result)
-                    .parse()
-                    .unwrap_or_else(|e| panic!("Failed to parse '{}' for {}: {}", value, key, e));
-            }
+        if value.contains('*')
+            && let Some(result) = Self::parse_multiplication(value)
+        {
+            // This is a bit tricky - we need to convert usize to T
+            // This works for usize, u64, u32, etc.
+            return format!("{}", result)
+                .parse()
+                .unwrap_or_else(|e| panic!("Failed to parse '{}' for {}: {}", value, key, e));
         }
 
         panic!("Failed to parse '{}' for {}: invalid format", value, key)

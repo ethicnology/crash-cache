@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, Sender};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::shared::persistence::AnalyticsRepository;
 
@@ -171,18 +171,16 @@ impl AnalyticsCollector {
             return;
         }
 
-        debug!(events = total_events, "Flushing analytics buffer");
-
         for _ in 0..buffer.global_hits {
             if let Err(e) = repo.record_rate_limit_global() {
-                error!(error = %e, "Failed to record global rate limit");
+                warn!(error = %e, "Failed to record global rate limit");
             }
         }
 
         for ((dsn, project_id), count) in buffer.dsn_hits.drain() {
             for _ in 0..count {
                 if let Err(e) = repo.record_rate_limit_dsn(&dsn, project_id) {
-                    error!(error = %e, dsn = %dsn, "Failed to record DSN rate limit");
+                    warn!(error = %e, dsn = %dsn, "Failed to record DSN rate limit");
                 }
             }
         }
@@ -190,7 +188,7 @@ impl AnalyticsCollector {
         for (subnet, count) in buffer.subnet_hits.drain() {
             for _ in 0..count {
                 if let Err(e) = repo.record_rate_limit_subnet(&subnet) {
-                    error!(error = %e, subnet = %subnet, "Failed to record subnet rate limit");
+                    warn!(error = %e, subnet = %subnet, "Failed to record subnet rate limit");
                 }
             }
         }
@@ -199,7 +197,7 @@ impl AnalyticsCollector {
             for _ in 0..stats.count {
                 let avg_latency = (stats.total_ms / stats.count) as u32;
                 if let Err(e) = repo.record_request_latency(&endpoint, avg_latency) {
-                    error!(error = %e, endpoint = %endpoint, "Failed to record request latency");
+                    warn!(error = %e, endpoint = %endpoint, "Failed to record request latency");
                 }
             }
         }
@@ -214,7 +212,7 @@ impl AnalyticsCollector {
             }
             Ok(_) => {}
             Err(e) => {
-                error!(error = %e, "Failed to cleanup old analytics data");
+                warn!(error = %e, "Failed to cleanup old analytics data");
             }
         }
     }
