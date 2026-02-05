@@ -178,7 +178,7 @@ erDiagram
         INTEGER id PK
         TEXT hash UK
         TEXT fingerprint_hash FK
-        BLOB frames_json
+        JSONB frames
     }
     
     %% ============================================
@@ -379,6 +379,7 @@ Aggregated request latency metrics per endpoint.
 | `idx_report_issue` | report | issue_id | Group by issue |
 | `idx_report_user` | report | user_id | Filter by user |
 | `idx_unwrap_stacktrace_fingerprint` | unwrap_stacktrace | fingerprint_hash | Find stacktraces by fingerprint |
+| `idx_unwrap_stacktrace_frames` | unwrap_stacktrace | frames (GIN) | Query JSON frames content |
 | `idx_session_project` | session | project_id | Filter sessions by project |
 | `idx_session_status` | session | status_id | Filter sessions by status |
 | `idx_session_sid` | session | sid | Find session by sid |

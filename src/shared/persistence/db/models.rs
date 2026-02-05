@@ -417,7 +417,7 @@ pub struct UnwrapStacktraceModel {
     pub id: i32,
     pub hash: String,
     pub fingerprint_hash: Option<String>,
-    pub frames_json: String,
+    pub frames: serde_json::Value,
 }
 
 #[derive(Insertable, Debug)]
@@ -425,7 +425,7 @@ pub struct UnwrapStacktraceModel {
 pub struct NewUnwrapStacktraceModel {
     pub hash: String,
     pub fingerprint_hash: Option<String>,
-    pub frames_json: String,
+    pub frames: serde_json::Value,
 }
 
 // ============================================

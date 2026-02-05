@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS unwrap_stacktrace (
     id SERIAL PRIMARY KEY,
     hash TEXT UNIQUE NOT NULL,
     fingerprint_hash TEXT,
-    frames_json TEXT NOT NULL
+    frames JSONB NOT NULL
 );
 
 -- ============================================
@@ -276,6 +276,7 @@ CREATE INDEX IF NOT EXISTS idx_report_timestamp ON report(timestamp);
 CREATE INDEX IF NOT EXISTS idx_report_issue ON report(issue_id);
 CREATE INDEX IF NOT EXISTS idx_report_user ON report(user_id);
 CREATE INDEX IF NOT EXISTS idx_unwrap_stacktrace_fingerprint ON unwrap_stacktrace(fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_unwrap_stacktrace_frames ON unwrap_stacktrace USING GIN (frames);
 CREATE INDEX IF NOT EXISTS idx_session_project ON session(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_status ON session(status_id);
 CREATE INDEX IF NOT EXISTS idx_session_sid ON session(sid);

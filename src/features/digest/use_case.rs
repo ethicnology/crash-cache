@@ -503,18 +503,18 @@ impl DigestReportUseCase {
 
         let stacktrace_id = match (&stacktrace_hash, &exception) {
             (Some(hash), Some(exc)) => {
-                let frames_json = exc
+                let frames = exc
                     .stacktrace
                     .as_ref()
                     .and_then(|s| s.frames.as_ref())
-                    .map(|f| serde_json::to_string(f).unwrap_or_default())
-                    .unwrap_or_default();
+                    .and_then(|f| serde_json::to_value(f).ok())
+                    .unwrap_or(serde_json::Value::Array(vec![]));
 
                 Some(self.repos.stacktrace.get_or_create(
                     conn,
                     hash,
                     fingerprint_hash.clone(),
-                    &frames_json,
+                    frames,
                 )?)
             }
             _ => None,

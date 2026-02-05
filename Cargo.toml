@@ -19,7 +19,7 @@ tower-http = { version = "0.6", features = ["trace", "cors"] }
 tower_governor = "0.8"
 governor = "0.10"
 
-diesel = { version = "2.3", default-features = false, features = ["postgres", "r2d2", "chrono", "32-column-tables"] }
+diesel = { version = "2.3", default-features = false, features = ["postgres", "r2d2", "chrono", "32-column-tables", "serde_json"] }
 diesel_migrations = "2.3"
 
 # Bundle libpq and openssl to avoid system dependency issues

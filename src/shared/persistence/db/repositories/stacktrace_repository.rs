@@ -17,7 +17,7 @@ impl StacktraceRepository {
         conn: &mut DbConnection,
         hash: &str,
         fingerprint_hash: Option<String>,
-        frames_json: &str,
+        frames: serde_json::Value,
     ) -> Result<i32, DomainError> {
         if let Some(existing) = unwrap_stacktrace::table
             .filter(unwrap_stacktrace::hash.eq(hash))
@@ -32,7 +32,7 @@ impl StacktraceRepository {
         let new_record = NewUnwrapStacktraceModel {
             hash: hash.to_string(),
             fingerprint_hash,
-            frames_json: frames_json.to_string(),
+            frames,
         };
 
         let id = diesel::insert_into(unwrap_stacktrace::table)
