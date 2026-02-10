@@ -62,7 +62,7 @@ cd crash-cache
 
 # Copy and edit environment file
 cp .env.example .env
-# Edit .env: Change POSTGRES_PASSWORD and METABASE_PASSWORD
+# Edit .env: Change POSTGRES_PASSWORD, METABASE_PASSWORD, and ports if needed
 ```
 
 2. Start all services:
@@ -71,9 +71,9 @@ docker-compose up -d
 ```
 
 This starts three services:
-- **PostgreSQL** (port 5432) - Database with separate users for crash-cache and Metabase
-- **crash-cache-server** (port 3000) - API server
-- **Metabase** (port 3001) - Analytics dashboard
+- **PostgreSQL** - Database with separate users for crash-cache and Metabase (internal only, not exposed to host)
+- **crash-cache-server** (port 3000) - API server (configurable via `CRASH_CACHE_PORT`)
+- **Metabase** (port 3001) - Analytics dashboard (configurable via `METABASE_PORT`)
 
 3. Create a project:
 ```bash
@@ -123,61 +123,41 @@ cp .env.example .env
 
 ## Configuration
 
-All configuration is done via environment variables (or `.env` file). See `.env.example` for complete documentation.
+All configuration is done via environment variables (or `.env` file). See `.env.example` for full documentation with sizing profiles (SMALL / MEDIUM / LARGE).
 
-### Core Settings
+### Docker Compose Variables
 
-| Variable | Example | Description |
+These are only used by `docker-compose.yml`.
+
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://user:pass@localhost/crash_cache` | PostgreSQL connection string |
-| `SERVER_HOST` | `0.0.0.0` | Listen host |
-| `SERVER_PORT` | `3000` | Listen port |
+| `POSTGRES_PASSWORD` | `changeme` | PostgreSQL superuser password |
+| `METABASE_PASSWORD` | `changeme_metabase` | Password for Metabase DB users |
+| `METABASE_PORT` | `3001` | Host port for the Metabase dashboard |
 
-### Database Connection Pool
+### Application Variables
 
-| Variable | Example | Description |
+These are read by the crash-cache binary. Docker Compose forwards them automatically.
+
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_POOL_SIZE` | `30` | Connection pool size (adjust based on load) |
-| `DATABASE_POOL_TIMEOUT_SECS` | `20` | Connection timeout before returning 503 |
-
-### Payload Limits
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `MAX_COMPRESSED_PAYLOAD_BYTES` | `50 * 1024` | Max gzip payload size (50KB) |
-| `MAX_UNCOMPRESSED_PAYLOAD_BYTES` | `200 * 1024` | Max raw JSON size (200KB) |
-
-### Worker Settings
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `WORKER_INTERVAL_SECS` | `60` | Digest worker interval (also: cache TTL) |
-| `WORKER_REPORTS_BATCH_SIZE` | `100` | Reports to process per worker cycle |
-
-### Concurrency
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `MAX_CONCURRENT_COMPRESSIONS` | `12` | CPU-intensive compression limit (2-3x cores) |
-
-### Rate Limiting
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `RATE_LIMIT_REQUESTS_PER_SEC` | `800` | Global requests/sec (0=disabled) |
-| `RATE_LIMIT_PER_IP_PER_SEC` | `30` | Per-IP requests/sec (0=disabled) |
-| `RATE_LIMIT_PER_PROJECT_PER_SEC` | `500` | Per-project requests/sec (0=disabled) |
-| `RATE_LIMIT_BURST_MULTIPLIER` | `2` | Allow bursts (2x = double limit for bursts) |
-
-### Analytics
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `ANALYTICS_FLUSH_INTERVAL_SECS` | `10` | How often to flush metrics to DB |
+| `DATABASE_URL` | — | PostgreSQL connection string (auto-set by Docker Compose) |
+| `CRASH_CACHE_HOST` | `0.0.0.0` | Listen address |
+| `CRASH_CACHE_PORT` | `3000` | Listen port (also used as Docker host port) |
+| `DATABASE_POOL_SIZE` | `30` | Max concurrent database connections |
+| `DATABASE_POOL_TIMEOUT_SECS` | `20` | Connection acquire timeout (returns 503 if exceeded) |
+| `MAX_COMPRESSED_PAYLOAD_BYTES` | `50 * 1024` | Max gzip payload size (supports math expressions) |
+| `MAX_UNCOMPRESSED_PAYLOAD_BYTES` | `200 * 1024` | Max raw JSON size after decompression |
+| `WORKER_INTERVAL_SECS` | `60` | Background worker cycle interval (seconds) |
+| `WORKER_REPORTS_BATCH_SIZE` | `100` | Archives to process per worker cycle |
+| `MAX_CONCURRENT_COMPRESSIONS` | `12` | Max parallel gzip operations (2-3× CPU cores) |
+| `RATE_LIMIT_REQUESTS_PER_SEC` | `800` | Global rate limit (0 = disabled) |
+| `RATE_LIMIT_PER_IP_PER_SEC` | `30` | Per-IP rate limit (0 = disabled) |
+| `RATE_LIMIT_PER_PROJECT_PER_SEC` | `500` | Per-project rate limit (0 = disabled) |
+| `RATE_LIMIT_BURST_MULTIPLIER` | `2` | Burst multiplier (2 = allow 2× limit briefly) |
+| `ANALYTICS_FLUSH_INTERVAL_SECS` | `10` | Metrics flush interval (seconds) |
 | `ANALYTICS_RETENTION_DAYS` | `30` | Auto-delete analytics older than N days |
-| `ANALYTICS_BUFFER_SIZE` | `20000` | Internal channel buffer (RPS × flush × 2) |
-
-**See `.env.example` for detailed configuration profiles (SMALL/MEDIUM/LARGE workloads).**
+| `ANALYTICS_BUFFER_SIZE` | `20000` | Internal metrics channel buffer |
 
 ## Docker Compose Architecture
 
@@ -192,14 +172,15 @@ Services:
       * crash_cache (app user)
       * metabase_app (Metabase admin)
       * metabase_readonly (analytics queries)
+    - Internal only (not exposed to host)
   
   crash-cache-server:
-    - API server on port 3000
+    - API server on CRASH_CACHE_PORT (default 3000)
     - Health checks every 30s
     - Auto-restarts on failure
   
   metabase:
-    - Analytics UI on port 3001
+    - Analytics UI on METABASE_PORT (default 3001)
     - Connect to crash_cache DB with metabase_readonly user
 ```
 

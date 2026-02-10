@@ -30,8 +30,8 @@ impl Settings {
 
         Self {
             database_url: Self::require_env("DATABASE_URL"),
-            server_host: Self::require_env("SERVER_HOST"),
-            server_port: Self::require_env_parse("SERVER_PORT"),
+            server_host: Self::require_env_or_fallback("CRASH_CACHE_HOST", "SERVER_HOST"),
+            server_port: Self::require_env_parse_or_fallback("CRASH_CACHE_PORT", "SERVER_PORT"),
 
             // Worker settings
             worker_interval_secs: Self::require_env_parse("WORKER_INTERVAL_SECS"),
@@ -101,6 +101,26 @@ impl Settings {
     {
         let value = Self::require_env(key);
         Self::parse_value(&value, key)
+    }
+
+    fn require_env_or_fallback(new_key: &str, old_key: &str) -> String {
+        env::var(new_key)
+            .or_else(|_| {
+                let val = env::var(old_key);
+                if val.is_ok() {
+                    eprintln!(
+                        "Warning: '{}' is deprecated, use '{}' instead",
+                        old_key, new_key
+                    );
+                }
+                val
+            })
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Missing required environment variable: {} (or deprecated: {})",
+                    new_key, old_key
+                )
+            })
     }
 
     fn require_env_parse_or_fallback<T>(new_key: &str, old_key: &str) -> T

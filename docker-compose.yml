@@ -11,8 +11,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crash_cache"]
       interval: 10s
@@ -54,8 +52,8 @@ services:
       DATABASE_POOL_TIMEOUT_SECS: ${DATABASE_POOL_TIMEOUT_SECS}
 
       # Server
-      SERVER_HOST: ${SERVER_HOST}
-      SERVER_PORT: ${SERVER_PORT}
+      CRASH_CACHE_HOST: ${CRASH_CACHE_HOST}
+      CRASH_CACHE_PORT: ${CRASH_CACHE_PORT}
 
       # Payload limits
       MAX_COMPRESSED_PAYLOAD_BYTES: ${MAX_COMPRESSED_PAYLOAD_BYTES}
@@ -79,11 +77,11 @@ services:
       ANALYTICS_RETENTION_DAYS: ${ANALYTICS_RETENTION_DAYS}
       ANALYTICS_BUFFER_SIZE: ${ANALYTICS_BUFFER_SIZE}
     ports:
-      - "3000:3000"
+      - "${CRASH_CACHE_PORT:-3000}:${CRASH_CACHE_PORT:-3000}"
     networks:
       - crash-cache-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:${CRASH_CACHE_PORT:-3000}/health || exit 1"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -104,7 +102,7 @@ services:
       MB_DB_PASS: ${METABASE_PASSWORD}
       MB_DB_HOST: postgres
     ports:
-      - "3001:3000"
+      - "${METABASE_PORT:-3001}:3000"
     volumes:
       - metabase_data:/metabase-data
     networks:
