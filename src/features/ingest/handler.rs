@@ -179,14 +179,8 @@ async fn store_report(
     body: Bytes,
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
+    let payload_size = body.len();
 
-    info!(
-        project_id = %project_id,
-        payload_size = body.len(),
-        "Received store report"
-    );
-
-    // Get connection first
     let mut conn = match state.pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -198,7 +192,6 @@ async fn store_report(
         }
     };
 
-    // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
     if let Err(response) = validate_project_key(
         &state.project_repo,
@@ -230,25 +223,24 @@ async fn store_report(
         original_size,
     ) {
         Ok(_) => {
-            let duration_ms = start.elapsed().as_millis();
             info!(
                 project_id = %project_id,
                 hash = %hash,
-                status = 200,
-                duration_ms = duration_ms,
-                "Report stored successfully"
+                payload_size,
+                duration_ms = start.elapsed().as_millis(),
+                "Ingest OK"
             );
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
         Err(e) => {
-            let duration_ms = start.elapsed().as_millis();
             let response = map_domain_error_to_response(&e);
             warn!(
                 project_id = %project_id,
+                payload_size,
                 status = response.0.as_u16(),
-                duration_ms = duration_ms,
+                duration_ms = start.elapsed().as_millis(),
                 error = ?e,
-                "Report storage failed"
+                "Ingest FAIL"
             );
             response
         }
@@ -263,14 +255,8 @@ async fn envelope_report(
     body: Bytes,
 ) -> impl IntoResponse {
     let start = std::time::Instant::now();
+    let payload_size = body.len();
 
-    info!(
-        project_id = %project_id,
-        payload_size = body.len(),
-        "Received envelope report"
-    );
-
-    // Get connection first
     let mut conn = match state.pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -282,7 +268,6 @@ async fn envelope_report(
         }
     };
 
-    // Validate sentry_key
     let sentry_key = extract_sentry_key(&headers, &query);
     if let Err(response) = validate_project_key(
         &state.project_repo,
@@ -328,11 +313,9 @@ async fn envelope_report(
         }
     };
 
-    // Check for event payload
     let has_event = envelope.find_event_payload().is_some();
 
     if !has_event {
-        // Session-only envelope - process sessions immediately (no archive/queue)
         let session_payloads = envelope.find_session_payloads();
         let mut sessions_stored = 0;
         let mut first_error: Option<DomainError> = None;
@@ -354,13 +337,12 @@ async fn envelope_report(
         }
 
         if sessions_stored > 0 {
-            let duration_ms = start.elapsed().as_millis();
             info!(
                 project_id = %project_id,
-                sessions_stored = sessions_stored,
-                status = 200,
-                duration_ms = duration_ms,
-                "Session-only envelope processed"
+                sessions_stored,
+                payload_size,
+                duration_ms = start.elapsed().as_millis(),
+                "Envelope session OK"
             );
             return (
                 StatusCode::OK,
@@ -368,26 +350,25 @@ async fn envelope_report(
             );
         }
 
-        // If we had errors but no successes, return the error
         if let Some(error) = first_error {
-            let duration_ms = start.elapsed().as_millis();
             let response = map_domain_error_to_response(&error);
             warn!(
                 project_id = %project_id,
+                payload_size,
                 status = response.0.as_u16(),
-                duration_ms = duration_ms,
+                duration_ms = start.elapsed().as_millis(),
                 error = ?error,
-                "Session processing failed"
+                "Envelope session FAIL"
             );
             return response;
         }
 
-        let duration_ms = start.elapsed().as_millis();
         warn!(
             project_id = %project_id,
+            payload_size,
             status = 400,
-            duration_ms = duration_ms,
-            "No event or session found in envelope"
+            duration_ms = start.elapsed().as_millis(),
+            "Envelope empty"
         );
         return (
             StatusCode::BAD_REQUEST,
@@ -395,7 +376,6 @@ async fn envelope_report(
         );
     }
 
-    // Event envelope - archive it (sessions will be processed during digest)
     match state.ingest_use_case.execute(
         &mut conn,
         project_id,
@@ -404,25 +384,24 @@ async fn envelope_report(
         original_size,
     ) {
         Ok(_) => {
-            let duration_ms = start.elapsed().as_millis();
             info!(
                 project_id = %project_id,
                 hash = %hash,
-                status = 200,
-                duration_ms = duration_ms,
-                "Envelope archived for digest"
+                payload_size,
+                duration_ms = start.elapsed().as_millis(),
+                "Envelope OK"
             );
             (StatusCode::OK, Json(serde_json::json!({"id": hash})))
         }
         Err(e) => {
-            let duration_ms = start.elapsed().as_millis();
             let response = map_domain_error_to_response(&e);
             warn!(
                 project_id = %project_id,
+                payload_size,
                 status = response.0.as_u16(),
-                duration_ms = duration_ms,
+                duration_ms = start.elapsed().as_millis(),
                 error = ?e,
-                "Envelope storage failed"
+                "Envelope FAIL"
             );
             response
         }
