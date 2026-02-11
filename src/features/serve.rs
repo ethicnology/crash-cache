@@ -148,17 +148,17 @@ pub async fn run_server() {
         .layer(DefaultBodyLimit::max(settings.max_compressed_payload_bytes))
         .layer(AnalyticsLayer::new(analytics_collector.clone()));
 
-    if let Some(layer) = create_ip_rate_limiter(
-        settings.rate_limit_per_ip_per_sec,
+    if let Some(layer) = create_global_rate_limiter(
+        settings.rate_limit_global_per_sec,
         settings.rate_limit_burst_multiplier,
     ) {
         api_router = api_router
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
-                RateLimitType::Ip,
+                RateLimitType::Global,
             ))
             .layer(layer);
-        info!("Per-IP rate limiter enabled");
+        info!("Global rate limiter enabled");
     }
 
     if let Some(layer) = create_project_rate_limiter(
@@ -174,17 +174,17 @@ pub async fn run_server() {
         info!("Per-project rate limiter enabled");
     }
 
-    if let Some(layer) = create_global_rate_limiter(
-        settings.rate_limit_global_per_sec,
+    if let Some(layer) = create_ip_rate_limiter(
+        settings.rate_limit_per_ip_per_sec,
         settings.rate_limit_burst_multiplier,
     ) {
         api_router = api_router
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
-                RateLimitType::Global,
+                RateLimitType::Ip,
             ))
             .layer(layer);
-        info!("Global rate limiter enabled");
+        info!("Per-IP rate limiter enabled");
     }
 
     // Health router without rate limiting

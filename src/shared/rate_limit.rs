@@ -10,7 +10,26 @@ use tower_governor::{
     key_extractor::{GlobalKeyExtractor, KeyExtractor, SmartIpKeyExtractor},
 };
 
+use tracing::warn;
+
 use crate::shared::analytics::AnalyticsCollector;
+
+fn mask_ip(ip: &str) -> String {
+    if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
+        match addr {
+            std::net::IpAddr::V4(v4) => {
+                let o = v4.octets();
+                format!("{}.{}.{}.x", o[0], o[1], o[2])
+            }
+            std::net::IpAddr::V6(v6) => {
+                let s = v6.segments();
+                format!("{:x}:{:x}:{:x}::x", s[0], s[1], s[2])
+            }
+        }
+    } else {
+        "unknown".to_string()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectKeyExtractor;
@@ -167,15 +186,18 @@ where
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 match limit_type {
                     RateLimitType::Global => {
+                        warn!(subnet = ip.as_deref().map(|i| mask_ip(i)).as_deref().unwrap_or("unknown"), "Rate limit GLOBAL");
                         collector.record_rate_limit_global();
                     }
                     RateLimitType::Ip => {
                         if let Some(ip) = ip {
+                            warn!(subnet = %mask_ip(&ip), "Rate limit IP");
                             collector.record_rate_limit_subnet(ip);
                         }
                     }
                     RateLimitType::Project => {
                         if let Some(dsn) = dsn {
+                            warn!(project = %dsn, "Rate limit PROJECT");
                             collector.record_rate_limit_dsn(dsn, None);
                         }
                     }
