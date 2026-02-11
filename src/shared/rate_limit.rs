@@ -167,9 +167,22 @@ where
         let mut inner = self.inner.clone();
 
         let ip = req
-            .extensions()
-            .get::<axum::extract::ConnectInfo<SocketAddr>>()
-            .map(|ci| ci.0.ip().to_string());
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(|s| s.trim().to_string())
+            .or_else(|| {
+                req.headers()
+                    .get("x-real-ip")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.trim().to_string())
+            })
+            .or_else(|| {
+                req.extensions()
+                    .get::<axum::extract::ConnectInfo<SocketAddr>>()
+                    .map(|ci| ci.0.ip().to_string())
+            });
         let dsn = {
             let path = req.uri().path();
             let parts: Vec<&str> = path.split('/').collect();

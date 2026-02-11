@@ -153,11 +153,11 @@ pub async fn run_server() {
         settings.rate_limit_burst_multiplier,
     ) {
         api_router = api_router
+            .layer(layer)
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
                 RateLimitType::Global,
-            ))
-            .layer(layer);
+            ));
         info!("Global rate limiter enabled");
     }
 
@@ -166,11 +166,11 @@ pub async fn run_server() {
         settings.rate_limit_burst_multiplier,
     ) {
         api_router = api_router
+            .layer(layer)
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
                 RateLimitType::Project,
-            ))
-            .layer(layer);
+            ));
         info!("Per-project rate limiter enabled");
     }
 
@@ -179,11 +179,11 @@ pub async fn run_server() {
         settings.rate_limit_burst_multiplier,
     ) {
         api_router = api_router
+            .layer(layer)
             .layer(RateLimitAnalyticsLayer::new(
                 analytics_collector.clone(),
                 RateLimitType::Ip,
-            ))
-            .layer(layer);
+            ));
         info!("Per-IP rate limiter enabled");
     }
 
