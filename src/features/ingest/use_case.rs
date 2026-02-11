@@ -3,6 +3,11 @@ use crate::shared::persistence::{
     ArchiveRepository, DbConnection, ProjectRepository, QueueRepository,
 };
 
+pub struct IngestResult {
+    pub hash: String,
+    pub duplicate: bool,
+}
+
 #[derive(Clone)]
 pub struct IngestReportUseCase {
     archive_repo: ArchiveRepository,
@@ -30,7 +35,7 @@ impl IngestReportUseCase {
         hash: String,
         compressed_payload: Vec<u8>,
         original_size: Option<i32>,
-    ) -> Result<String, DomainError> {
+    ) -> Result<IngestResult, DomainError> {
         if !self.project_repo.exists(conn, project_id)? {
             return Err(DomainError::ProjectNotFound(project_id));
         }
@@ -45,6 +50,9 @@ impl IngestReportUseCase {
             self.queue_repo.enqueue(conn, &queue_item)?;
         }
 
-        Ok(hash)
+        Ok(IngestResult {
+            hash,
+            duplicate: archive_exists,
+        })
     }
 }

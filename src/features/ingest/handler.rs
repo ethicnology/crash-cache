@@ -26,7 +26,7 @@ use crate::shared::persistence::{
     UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
 };
 
-use super::IngestReportUseCase;
+use super::use_case::IngestReportUseCase;
 
 /// Maps DomainError to appropriate HTTP status codes and JSON responses
 fn map_domain_error_to_response(error: &DomainError) -> (StatusCode, Json<serde_json::Value>) {
@@ -222,15 +222,25 @@ async fn store_report(
         compressed,
         original_size,
     ) {
-        Ok(_) => {
-            info!(
-                project_id = %project_id,
-                hash = %hash,
-                payload_size,
-                duration_ms = start.elapsed().as_millis(),
-                "Ingest OK"
-            );
-            (StatusCode::OK, Json(serde_json::json!({"id": hash})))
+        Ok(result) => {
+            if result.duplicate {
+                warn!(
+                    project_id = %project_id,
+                    payload_size,
+                    duration_ms = start.elapsed().as_millis(),
+                    hash = %result.hash,
+                    "Store DUP"
+                );
+            } else {
+                info!(
+                    project_id = %project_id,
+                    payload_size,
+                    duration_ms = start.elapsed().as_millis(),
+                    hash = %result.hash,
+                    "Store OK"
+                );
+            }
+            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -240,7 +250,7 @@ async fn store_report(
                 status = response.0.as_u16(),
                 duration_ms = start.elapsed().as_millis(),
                 error = ?e,
-                "Ingest FAIL"
+                "Store FAIL"
             );
             response
         }
@@ -383,15 +393,25 @@ async fn envelope_report(
         compressed,
         original_size,
     ) {
-        Ok(_) => {
-            info!(
-                project_id = %project_id,
-                hash = %hash,
-                payload_size,
-                duration_ms = start.elapsed().as_millis(),
-                "Envelope OK"
-            );
-            (StatusCode::OK, Json(serde_json::json!({"id": hash})))
+        Ok(result) => {
+            if result.duplicate {
+                warn!(
+                    project_id = %project_id,
+                    payload_size,
+                    duration_ms = start.elapsed().as_millis(),
+                    hash = %result.hash,
+                    "Envelope DUP"
+                );
+            } else {
+                info!(
+                    project_id = %project_id,
+                    payload_size,
+                    duration_ms = start.elapsed().as_millis(),
+                    hash = %result.hash,
+                    "Envelope OK"
+                );
+            }
+            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
