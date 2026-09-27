@@ -2,7 +2,7 @@ use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tower::{Layer, Service};
 use tower_governor::{
     GovernorError, GovernorLayer,
@@ -241,18 +241,29 @@ pub type GlobalRateLimitLayer = GovernorLayer<
     axum::body::Body,
 >;
 
+// Shared by all three scopes so their requests-per-second contract stays identical.
+fn rate_limit_settings(requests_per_sec: u64, burst_multiplier: u32) -> Option<(Duration, u32)> {
+    if requests_per_sec == 0 || burst_multiplier == 0 {
+        return None;
+    }
+    // tower_governor 0.8's per_second argument is seconds per token, not RPS.
+    // Round up to nanosecond precision so the configured rate is never exceeded.
+    let period = Duration::from_nanos(1_000_000_000_u64.div_ceil(requests_per_sec));
+    let burst_size = requests_per_sec
+        .saturating_mul(u64::from(burst_multiplier))
+        .min(u64::from(u32::MAX)) as u32;
+    Some((period, burst_size))
+}
+
 /// Creates a GovernorLayer for per-IP rate limiting using SmartIpKeyExtractor
 pub fn create_ip_rate_limiter(
     requests_per_sec: u64,
     burst_multiplier: u32,
 ) -> Option<IpRateLimitLayer> {
-    if requests_per_sec == 0 {
-        return None;
-    }
-
+    let (period, burst_size) = rate_limit_settings(requests_per_sec, burst_multiplier)?;
     let config = GovernorConfigBuilder::default()
-        .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * burst_multiplier)
+        .period(period)
+        .burst_size(burst_size)
         .key_extractor(SmartIpKeyExtractor)
         .finish()?;
 
@@ -264,13 +275,10 @@ pub fn create_project_rate_limiter(
     requests_per_sec: u64,
     burst_multiplier: u32,
 ) -> Option<ProjectRateLimitLayer> {
-    if requests_per_sec == 0 {
-        return None;
-    }
-
+    let (period, burst_size) = rate_limit_settings(requests_per_sec, burst_multiplier)?;
     let config = GovernorConfigBuilder::default()
-        .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * burst_multiplier)
+        .period(period)
+        .burst_size(burst_size)
         .key_extractor(ProjectKeyExtractor)
         .finish()?;
 
@@ -282,15 +290,44 @@ pub fn create_global_rate_limiter(
     requests_per_sec: u64,
     burst_multiplier: u32,
 ) -> Option<GlobalRateLimitLayer> {
-    if requests_per_sec == 0 {
-        return None;
-    }
-
+    let (period, burst_size) = rate_limit_settings(requests_per_sec, burst_multiplier)?;
     let config = GovernorConfigBuilder::default()
-        .per_second(requests_per_sec)
-        .burst_size(requests_per_sec as u32 * burst_multiplier)
+        .period(period)
+        .burst_size(burst_size)
         .key_extractor(GlobalKeyExtractor)
         .finish()?;
 
     Some(GovernorLayer::new(config))
+}
+
+#[cfg(test)]
+mod quota_tests {
+    use super::*;
+
+    #[test]
+    fn configured_requests_per_second_replenishes_one_token_at_reciprocal_interval() {
+        let (period, burst) = rate_limit_settings(500, 2).unwrap();
+        assert_eq!(period, Duration::from_millis(2));
+        assert_eq!(burst, 1000);
+        assert_eq!(rate_limit_settings(1, 2), Some((Duration::from_secs(1), 2)));
+        assert_eq!(rate_limit_settings(3, 1), Some((Duration::from_nanos(333_333_334), 3)));
+    }
+
+    #[test]
+    fn large_quotas_saturate_burst_without_disabling_limiting() {
+        assert_eq!(rate_limit_settings(u64::MAX, u32::MAX), Some((Duration::from_nanos(1), u32::MAX)));
+        assert_eq!(rate_limit_settings(u32::MAX as u64 + 1, 1), Some((Duration::from_nanos(1), u32::MAX)));
+        assert!(create_ip_rate_limiter(u64::MAX, u32::MAX).is_some());
+        assert!(create_project_rate_limiter(u64::MAX, u32::MAX).is_some());
+        assert!(create_global_rate_limiter(u64::MAX, u32::MAX).is_some());
+    }
+
+    #[test]
+    fn zero_configuration_preserves_disabled_scope_behavior() {
+        assert_eq!(rate_limit_settings(0, 2), None);
+        assert_eq!(rate_limit_settings(10, 0), None);
+        assert!(create_ip_rate_limiter(0, 2).is_none());
+        assert!(create_project_rate_limiter(0, 2).is_none());
+        assert!(create_global_rate_limiter(0, 2).is_none());
+    }
 }

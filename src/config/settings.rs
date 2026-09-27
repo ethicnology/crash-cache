@@ -1,6 +1,7 @@
 use std::env;
 
 pub struct Settings {
+    pub metabase_auth_url: Option<String>,
     pub database_url: String,
     pub server_host: String,
     pub server_port: u16,
@@ -29,6 +30,9 @@ impl Settings {
         dotenvy::dotenv().ok();
 
         Self {
+            metabase_auth_url: env::var("METABASE_AUTH_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             database_url: Self::require_env("DATABASE_URL"),
             server_host: Self::require_env_or_fallback("CRASH_CACHE_HOST", "SERVER_HOST"),
             server_port: Self::require_env_parse_or_fallback("CRASH_CACHE_PORT", "SERVER_PORT"),

@@ -6,3 +6,5 @@ pub use db::{
     UnwrapSessionEnvironmentRepository, UnwrapSessionReleaseRepository,
     UnwrapSessionStatusRepository, establish_connection_pool, run_migrations,
 };
+
+pub mod rich_telemetry;

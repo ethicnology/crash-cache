@@ -1,0 +1,15 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	# Preserve the path and session cookie; crash-cache authorizes each read.
+	handle /api/evidence/attachments/* {
+		reverse_proxy crash-cache:3000
+	}
+	handle {
+		reverse_proxy metabase:3000
+	}
+}

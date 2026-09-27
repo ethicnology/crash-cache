@@ -8,3 +8,7 @@ report_*.json
 
 # Archive exports
 archive.jsonl
+
+# Python operator tooling
+__pycache__/
+*.py[cod]

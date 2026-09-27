@@ -1,8 +1,8 @@
 use axum::{
     Json, Router,
-    body::Bytes,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, FromRequest, Multipart, Path, Query, State},
+    http::{HeaderMap, Request, StatusCode},
     response::IntoResponse,
     routing::{get, post},
 };
@@ -161,6 +161,8 @@ pub fn create_api_router(state: AppState) -> Router {
         .route("/api/{project_id}/store", post(store_report))
         .route("/api/{project_id}/envelope/", post(envelope_report))
         .route("/api/{project_id}/envelope", post(envelope_report))
+        .route("/api/{project_id}/minidump/", post(minidump_report))
+        .route("/api/{project_id}/minidump", post(minidump_report))
         .with_state(state)
 }
 
@@ -215,6 +217,13 @@ async fn store_report(
         Err(response) => return response,
     };
 
+    let event_id = match decompress(&compressed).ok().and_then(|payload| serde_json::from_slice::<serde_json::Value>(&payload).ok())
+        .and_then(|event| event.get("event_id").and_then(|id| id.as_str()).map(str::to_owned))
+        .and_then(|id| uuid::Uuid::parse_str(&id).ok()) {
+        Some(id) => id.simple().to_string(),
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Event requires a valid event_id"}))),
+    };
+
     match state.ingest_use_case.execute(
         &mut conn,
         project_id,
@@ -240,7 +249,7 @@ async fn store_report(
                     "Store OK"
                 );
             }
-            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
+            (StatusCode::OK, Json(serde_json::json!({"id": event_id})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -255,6 +264,110 @@ async fn store_report(
             response
         }
     }
+}
+
+async fn minidump_report(
+    State(state): State<AppState>,
+    Path(project_id): Path<i32>,
+    Query(query): Query<SentryQueryParams>,
+    mut headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    // Crashpad compresses the entire multipart body. Decode before asking the
+    // multipart extractor to parse boundaries, retaining both wire and decoded limits.
+    let gzip = match content_is_gzip(&headers) {
+        Ok(value) => value,
+        Err(response) => return response.into_response(),
+    };
+    let permit = match state.compression_semaphore.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error":"Service overloaded, please retry"}))).into_response(),
+    };
+    let max_size = state.max_uncompressed_payload_bytes;
+    let decoded = tokio::task::spawn_blocking(move || decode_body(body.to_vec(), gzip, max_size)).await;
+    drop(permit);
+    let decoded = match decoded {
+        Ok(Ok(body)) => body,
+        Ok(Err(response)) => return response.into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"Payload worker failed"}))).into_response(),
+    };
+    headers.remove("content-encoding");
+    headers.remove("content-length");
+    let mut request = Request::new(Body::from(decoded));
+    *request.headers_mut() = headers.clone();
+    DefaultBodyLimit::max(max_size).apply(&mut request);
+    let mut multipart = match Multipart::from_request(request, &()).await {
+        Ok(multipart) => multipart,
+        Err(rejection) => return rejection.into_response(),
+    };
+    let mut attachments: Vec<(String, Option<String>, String, Vec<u8>)> = Vec::new();
+    let mut dump: Option<Vec<u8>> = None;
+    let mut event: Option<serde_json::Value> = None;
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(_) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Invalid multipart body"}))).into_response(),
+        };
+        let name = field.name().unwrap_or_default().to_owned();
+        let filename = field.file_name().map(str::to_owned);
+        let content_type = field.content_type().unwrap_or("application/octet-stream").to_owned();
+        let bytes = match field.bytes().await {
+            Ok(bytes) if bytes.len() <= state.max_uncompressed_payload_bytes => bytes,
+            _ => return (StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"error":"Invalid or oversized minidump field"}))).into_response(),
+        };
+        match name.as_str() {
+            "upload_file_minidump" if dump.is_none() => dump = Some(bytes.to_vec()),
+            "sentry" | "__sentry-event" => {
+                if event.is_some() {
+                    return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Multiple event metadata fields"}))).into_response();
+                }
+                let parsed = if name == "__sentry-event" {
+                    decode_crashpad_event(&bytes)
+                } else {
+                    serde_json::from_slice::<serde_json::Value>(&bytes).ok().filter(serde_json::Value::is_object)
+                };
+                match parsed {
+                    Some(value) => event = Some(value),
+                    None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Invalid sentry metadata"}))).into_response(),
+                }
+            }
+            "upload_file_minidump" => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Multiple minidumps"}))).into_response(),
+            _ => attachments.push((name, filename, content_type, bytes.to_vec())),
+        }
+    }
+    let Some(dump) = dump else {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Missing minidump"}))).into_response();
+    };
+    let mut event = event.unwrap_or_else(|| serde_json::json!({}));
+    let id = event.get("event_id").and_then(serde_json::Value::as_str)
+        .and_then(|id| uuid::Uuid::parse_str(id).ok()).unwrap_or_else(uuid::Uuid::new_v4).simple().to_string();
+    event["event_id"] = serde_json::json!(id);
+    let event_bytes = serde_json::to_vec(&event).unwrap_or_default();
+    let mut envelope = format!("{}\n{}\n", serde_json::json!({"event_id":id}), serde_json::json!({"type":"event","length":event_bytes.len()})).into_bytes();
+    envelope.extend_from_slice(&event_bytes);
+    envelope.extend_from_slice(format!("\n{}\n", serde_json::json!({"type":"attachment","attachment_type":"event.minidump","length":dump.len(),"filename":"crash.dmp"})).as_bytes());
+    envelope.extend_from_slice(&dump);
+    for (name, filename, content_type, bytes) in attachments {
+        envelope.extend_from_slice(format!("\n{}\n", serde_json::json!({
+            "type":"attachment", "attachment_type":"event.attachment",
+            "length":bytes.len(), "filename":filename.unwrap_or(name), "content_type":content_type
+        })).as_bytes());
+        envelope.extend_from_slice(&bytes);
+    }
+    headers.remove("content-encoding");
+    envelope_report(State(state), Path(project_id), Query(query), headers, Bytes::from(envelope)).await.into_response()
+}
+
+/// Sentry Native's Crashpad attachment contains one MessagePack scope object.
+fn decode_crashpad_event(bytes: &[u8]) -> Option<serde_json::Value> {
+    let mut decoder = rmp_serde::Deserializer::new(std::io::Cursor::new(bytes));
+    decoder.set_max_depth(64);
+    let event = serde_json::Value::deserialize(&mut decoder).ok()?;
+    if !event.is_object() || decoder.position() != bytes.len() as u64 {
+        return None;
+    }
+    Some(event)
 }
 
 async fn envelope_report(
@@ -323,67 +436,58 @@ async fn envelope_report(
         }
     };
 
-    let has_event = envelope.find_event_payload().is_some();
+    let event_count = envelope.items.iter().filter(|item| item.header.item_type == "event").count();
+    let minidump_count = envelope.items.iter().filter(|item| item.header.item_type == "attachment"
+        && item.header.extra.get("attachment_type").and_then(serde_json::Value::as_str) == Some("event.minidump")).count();
+    if event_count > 1 || minidump_count > 1 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Envelope has multiple events or minidumps"})));
+    }
+    let has_event = event_count == 1 || minidump_count == 1;
 
-    if !has_event {
-        let session_payloads = envelope.find_session_payloads();
-        let mut sessions_stored = 0;
-        let mut first_error: Option<DomainError> = None;
-
-        for session_data in session_payloads {
-            if let Some(session) = SentrySession::parse(session_data) {
-                match store_session(&state, &mut conn, project_id, &session) {
-                    Ok(_sid_id) => {
-                        sessions_stored += 1;
-                    }
-                    Err(e) => {
-                        warn!(error = %e, sid = %session.sid, "Failed to store session");
-                        if first_error.is_none() {
-                            first_error = Some(e);
-                        }
-                    }
-                }
-            }
-        }
-
-        if sessions_stored > 0 {
-            info!(
-                project_id = %project_id,
-                sessions_stored,
-                payload_size,
-                duration_ms = start.elapsed().as_millis(),
-                "Envelope session OK"
-            );
+    let has_logs = envelope.items.iter().any(|item| item.header.item_type == "log");
+    let has_attachments = envelope.items.iter().any(|item| item.header.item_type == "attachment");
+    if let Err(error) = crate::shared::parser::sentry_log::parse_logs(&envelope) {
+        return map_domain_error_to_response(&error);
+    }
+    if !has_event && !has_logs && !has_attachments {
+        let payloads = envelope.find_session_payloads();
+        if payloads.is_empty() {
             return (
-                StatusCode::OK,
-                Json(serde_json::json!({"sessions": sessions_stored})),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Unsupported envelope items; expected event or individual session"})),
             );
         }
-
-        if let Some(error) = first_error {
-            let response = map_domain_error_to_response(&error);
-            warn!(
-                project_id = %project_id,
-                payload_size,
-                status = response.0.as_u16(),
-                duration_ms = start.elapsed().as_millis(),
-                error = ?error,
-                "Envelope session FAIL"
+        let sessions: Option<Vec<SentrySession>> = payloads.into_iter().map(SentrySession::parse).collect();
+        let Some(sessions) = sessions else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid session payload"})),
             );
-            return response;
-        }
+        };
+        let result: Result<usize, DomainError> = conn.transaction(|conn| {
+            for session in &sessions {
+                store_session(&state, conn, project_id, session)?;
+            }
+            Ok(sessions.len())
+        });
+        return match result {
+            Ok(count) => (StatusCode::OK, Json(serde_json::json!({"sessions": count}))),
+            Err(error) => map_domain_error_to_response(&error),
+        };
+    }
 
-        warn!(
-            project_id = %project_id,
-            payload_size,
-            status = 400,
-            duration_ms = start.elapsed().as_millis(),
-            "Envelope empty"
-        );
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "No event or session in envelope"})),
-        );
+    let payload_id = envelope.find_event_payload()
+        .and_then(|payload| serde_json::from_slice::<serde_json::Value>(payload).ok())
+        .and_then(|event| event.get("event_id").and_then(|id| id.as_str()).map(str::to_owned));
+    let normalize_id = |id: &str| uuid::Uuid::parse_str(id).ok().map(|id| id.simple().to_string());
+    let header_id = envelope.header.event_id.as_deref().and_then(normalize_id);
+    let body_id = payload_id.as_deref().and_then(normalize_id);
+    if header_id.is_some() && body_id.is_some() && header_id != body_id {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Envelope and event IDs differ"})));
+    }
+    let event_id = header_id.or(body_id);
+    if (has_event || has_attachments) && event_id.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Event or attachment requires a valid event_id"})));
     }
 
     match state.ingest_use_case.execute(
@@ -411,7 +515,7 @@ async fn envelope_report(
                     "Envelope OK"
                 );
             }
-            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
+            (StatusCode::OK, Json(serde_json::json!({"id": event_id})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -465,6 +569,10 @@ fn store_session(
         status_id,
         release_id,
         environment_id,
+        distinct_id: session.distinct_id_hash(),
+        sequence: session.sequence_decimal(),
+        duration: session.duration,
+        abnormal_mechanism: session.abnormal_mechanism.clone(),
     };
 
     let session_id = state.session_repo.upsert(conn, new_session)?;
@@ -478,54 +586,45 @@ async fn prepare_payload(
     semaphore: &Semaphore,
     max_size: usize,
 ) -> Result<(String, Vec<u8>, Option<i32>), (StatusCode, Json<serde_json::Value>)> {
-    let is_gzip = headers
-        .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("gzip"))
-        .unwrap_or(false);
+    let gzip = content_is_gzip(headers)?;
+    let _permit = semaphore.try_acquire().map_err(|_| (
+        StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Service overloaded, please retry"}))
+    ))?;
+    let body = body.to_vec();
+    let result = tokio::task::spawn_blocking(move || {
+        let payload = decode_body(body, gzip, max_size)?;
+        let original_size = payload.len() as i32;
+        let compressed = compress(&payload).map_err(|_| (
+            StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Compression failed"}))
+        ))?;
+        Ok((compute_hash(&compressed), compressed, Some(original_size)))
+    }).await.map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Payload worker failed"}))
+    ))?;
+    result
+}
 
-    if is_gzip {
-        let hash = compute_hash(body);
-        Ok((hash, body.to_vec(), None))
-    } else {
-        if body.len() > max_size {
-            return Err((
-                StatusCode::PAYLOAD_TOO_LARGE,
-                Json(serde_json::json!({
-                    "error": format!("Payload too large: {} bytes (max {})", body.len(), max_size)
-                })),
-            ));
-        }
-
-        let permit = semaphore.try_acquire();
-        if permit.is_err() {
-            warn!("Compression semaphore exhausted - service overloaded");
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": "Service overloaded, please retry"})),
-            ));
-        }
-
-        let original_size = body.len() as i32;
-        let body_clone = body.to_vec();
-        let compressed = tokio::task::spawn_blocking(move || compress(&body_clone))
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                )
-            })?
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
-
-        let hash = compute_hash(&compressed);
-        Ok((hash, compressed, Some(original_size)))
+fn content_is_gzip(headers: &HeaderMap) -> Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    match headers.get("content-encoding").and_then(|value| value.to_str().ok()).unwrap_or("identity") {
+        "gzip" => Ok(true),
+        "identity" => Ok(false),
+        _ => Err((StatusCode::UNSUPPORTED_MEDIA_TYPE, Json(serde_json::json!({"error":"Unsupported content encoding"})))),
     }
+}
+
+fn decode_body(body: Vec<u8>, gzip: bool, max_size: usize) -> Result<Vec<u8>, (StatusCode, Json<serde_json::Value>)> {
+    let payload = if gzip {
+        let mut payload = Vec::new();
+        GzDecoder::new(body.as_slice()).take(max_size.saturating_add(1) as u64)
+            .read_to_end(&mut payload).map_err(|_| (
+                StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Invalid gzip payload"}))
+            ))?;
+        payload
+    } else { body };
+    if payload.len() > max_size || payload.len() > i32::MAX as usize {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"error":"Uncompressed payload exceeds limit"}))));
+    }
+    Ok(payload)
 }
 
 fn compute_hash(data: &[u8]) -> String {
@@ -683,4 +782,159 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         orphaned,
         updated_at: Some(Instant::now()),
     }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn protocol_rejects_oversized_gzip_after_decoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        let body = compress(&vec![b'x'; 1024]).unwrap();
+        let result = prepare_payload(&headers, &body, &Semaphore::new(1), 16).await;
+        assert_eq!(result.unwrap_err().0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn protocol_rejects_invalid_gzip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        assert!(prepare_payload(&headers, b"invalid", &Semaphore::new(1), 1024).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn protocol_rejects_unsupported_encoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "br".parse().unwrap());
+        let result = prepare_payload(&headers, b"payload", &Semaphore::new(1), 1024).await;
+        assert_eq!(result.unwrap_err().0, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+    #[tokio::test]
+    async fn protocol_store_response_returns_event_id() {
+        use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:test@localhost/crash_cache_test".to_owned());
+        let pool = establish_connection_pool(&url, 10, 30);
+        run_migrations(&pool);
+        let repos = Repositories::new(pool.clone());
+        let project_id = repos.project.create(None, None).unwrap();
+        let state = AppState {
+            ingest_use_case: IngestReportUseCase::new(repos.archive, repos.queue, repos.project.clone()),
+            compression_semaphore: Arc::new(Semaphore::new(1)), pool,
+            project_repo: repos.project, project_cache: ProjectCache::new(Duration::from_secs(1)),
+            health_cache: Arc::new(RwLock::new(HealthStats::default())), health_cache_ttl: Duration::from_secs(1),
+            max_uncompressed_payload_bytes: 1024, session_repo: repos.session,
+            session_status_repo: repos.session_status, session_release_repo: repos.session_release,
+            session_environment_repo: repos.session_environment,
+        };
+        let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let body = Bytes::from(serde_json::json!({"event_id": id, "message": "test"}).to_string());
+        let response = store_report(State(state), Path(project_id), Query(SentryQueryParams { sentry_key: Some("test".to_owned()) }), HeaderMap::new(), body).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["id"], id);
+    }
+
+    async fn multipart_response(dump_size: usize, gzip_body: bool) -> StatusCode {
+        multipart_response_with_metadata(dump_size, gzip_body, None).await
+    }
+
+    async fn multipart_response_with_metadata(dump_size: usize, gzip_body: bool, metadata: Option<serde_json::Value>) -> StatusCode {
+        use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
+        use axum::{body::Body, extract::DefaultBodyLimit, http::Request};
+        use tower::ServiceExt;
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:test@localhost/crash_cache_test".to_owned());
+        assert!(url.contains("crash_cache_test"), "Multipart regression must use the test database");
+        let pool = establish_connection_pool(&url, 10, 30);
+        run_migrations(&pool);
+        let repos = Repositories::new(pool.clone());
+        let project_id = repos.project.create(None, None).unwrap();
+        let state = AppState {
+            ingest_use_case: IngestReportUseCase::new(repos.archive, repos.queue, repos.project.clone()),
+            compression_semaphore: Arc::new(Semaphore::new(1)), pool,
+            project_repo: repos.project, project_cache: ProjectCache::new(Duration::from_secs(1)),
+            health_cache: Arc::new(RwLock::new(HealthStats::default())), health_cache_ttl: Duration::from_secs(1),
+            max_uncompressed_payload_bytes: 4 * 1024 * 1024, session_repo: repos.session,
+            session_status_repo: repos.session_status, session_release_repo: repos.session_release,
+            session_environment_repo: repos.session_environment,
+        };
+        let mut body = b"--test-boundary\r\nContent-Disposition: form-data; name=\"sentry\"\r\n\r\n{\"event_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\r\n--test-boundary\r\nContent-Disposition: form-data; name=\"upload_file_minidump\"; filename=\"synthetic.dmp\"\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
+        if let Some(metadata) = &metadata {
+            body = b"--test-boundary\r\nContent-Disposition: form-data; name=\"__sentry-event\"; filename=\"__sentry-event\"\r\nContent-Type: application/octet-stream\r\n\r\n".to_vec();
+            body.extend_from_slice(&rmp_serde::to_vec_named(metadata).unwrap());
+            body.extend_from_slice(b"\r\n--test-boundary\r\nContent-Disposition: form-data; name=\"upload_file_minidump\"; filename=\"synthetic.dmp\"\r\nContent-Type: application/octet-stream\r\n\r\n");
+        }
+        body.extend(std::iter::repeat_n(b'x', dump_size));
+        if metadata.is_some() {
+            body.extend_from_slice(b"\r\n--test-boundary\r\nContent-Disposition: form-data; name=\"__sentry-breadcrumb1\"; filename=\"__sentry-breadcrumb1\"\r\nContent-Type: application/octet-stream\r\n\r\n\x00\xffopaque\nbytes");
+        }
+        body.extend_from_slice(b"\r\n--test-boundary--\r\n");
+        let body = if gzip_body { compress(&body).unwrap() } else { body };
+        let mut request = Request::builder().method("POST")
+            .uri(format!("/api/{project_id}/minidump/?sentry_key=test"))
+            .header("content-type", "multipart/form-data; boundary=test-boundary");
+        if gzip_body { request = request.header("content-encoding", "gzip"); }
+        let pool = state.pool.clone();
+        let router = create_api_router(state).layer(DefaultBodyLimit::max(8 * 1024 * 1024));
+        let response = router.oneshot(request.body(Body::from(body)).unwrap()).await.unwrap();
+        let status = response.status();
+        if let Some(expected) = metadata {
+            let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+            let acknowledgement: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(acknowledgement["id"], expected["event_id"]);
+            use crate::shared::persistence::db::{schema::archive, models::ArchiveModel};
+            let stored = archive::table.filter(archive::project_id.eq(project_id)).first::<ArchiveModel>(&mut pool.get().unwrap()).unwrap();
+            let raw = decompress(&stored.compressed_payload).unwrap();
+            let envelope = Envelope::parse(&raw).unwrap();
+            let event: serde_json::Value = serde_json::from_slice(envelope.find_event_payload().unwrap()).unwrap();
+            assert_eq!(event["user"], expected["user"]);
+            assert_eq!(event["tags"], expected["tags"]);
+            assert_eq!(event["contexts"], expected["contexts"]);
+            let attachment = envelope.items.iter().find(|item| item.header.extra.get("filename").and_then(serde_json::Value::as_str) == Some("__sentry-breadcrumb1")).expect("opaque Crashpad attachment must survive normalization");
+            assert_eq!(attachment.payload, b"\x00\xffopaque\nbytes");
+            assert_eq!(attachment.header.content_type.as_deref(), Some("application/octet-stream"));
+        }
+        status
+    }
+
+    #[tokio::test]
+    async fn protocol_multipart_larger_than_default_limit_is_accepted() {
+        assert_eq!(multipart_response(3 * 1024 * 1024, false).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn protocol_crashpad_gzip_multipart_is_accepted() {
+        assert_eq!(multipart_response(3 * 1024 * 1024, true).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn protocol_crashpad_gzip_multipart_obeys_decompressed_limit() {
+        assert_eq!(multipart_response(5 * 1024 * 1024, true).await, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn protocol_crashpad_preserves_msgpack_scope_metadata() {
+        let metadata = serde_json::json!({
+            "event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "user":{"id":"synthetic-installation"},
+            "tags":{"layer":"native","operation_id":"synthetic-operation"},
+            "contexts":{"os":{"name":"Linux"},"device":{"arch":"x86_64"}}
+        });
+        assert_eq!(multipart_response_with_metadata(32, true, Some(metadata)).await, StatusCode::OK);
+    }
+
+    #[test]
+    fn crashpad_metadata_rejects_invalid_or_ambiguous_payloads() {
+        assert!(decode_crashpad_event(b"not messagepack").is_none());
+        assert!(decode_crashpad_event(&rmp_serde::to_vec(&vec![1, 2]).unwrap()).is_none());
+        let mut payload = rmp_serde::to_vec_named(&serde_json::json!({"event_id":"synthetic"})).unwrap();
+        payload.push(0xc0);
+        assert!(decode_crashpad_event(&payload).is_none());
+        let mut deep = serde_json::json!({});
+        for _ in 0..70 { deep = serde_json::json!({"nested":deep}); }
+        assert!(decode_crashpad_event(&rmp_serde::to_vec_named(&deep).unwrap()).is_none());
+    }
+
 }

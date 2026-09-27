@@ -1,6 +1,6 @@
 use diesel::Connection;
 use sha2::{Digest, Sha256};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryBreadcrumb, SentryReport};
@@ -79,38 +79,69 @@ impl DigestReportUseCase {
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
-        conn.transaction(|conn| {
-            self.process_single_item_tx(conn, item)
-                .map_err(|_| diesel::result::Error::RollbackTransaction)
-        })
-        .map_err(|e| DomainError::Database(e.to_string()))
+        let archive = self.repos.archive.find_by_hash(&mut conn, &item.archive_hash)?
+            .ok_or_else(|| DomainError::NotFound(item.archive_hash.clone()))?;
+        let payload = self.compressor.decompress(&archive.compressed_payload)?;
+        drop(conn);
+        let native_report = crate::shared::symbolication::process_payload(&payload, archive.project_id)?;
+        let mut conn = self.pool.get().map_err(|error| DomainError::ConnectionPool(error.to_string()))?;
+        conn.transaction(|conn| self.process_single_item_tx(conn, item, archive.project_id, &payload, native_report))
     }
 
     fn process_single_item_tx(
         &self,
         conn: &mut DbConnection,
         item: &QueueItem,
+        project_id: i32,
+        decompressed: &[u8],
+        native_report: Option<SentryReport>,
     ) -> Result<(), DomainError> {
-        let archive = self
-            .repos
-            .archive
-            .find_by_hash(conn, &item.archive_hash)?
-            .ok_or_else(|| {
-                DomainError::NotFound(format!("Archive {} not found", item.archive_hash))
-            })?;
-
-        let decompressed = self.compressor.decompress(&archive.compressed_payload)?;
 
         // Try to parse as envelope first to extract session
-        let session_id = self.extract_and_store_session(conn, &decompressed, archive.project_id)?;
+        let session_id = self.extract_and_store_session(conn, decompressed, project_id)?;
+
+        if let Some(envelope) = Envelope::parse(decompressed).filter(|envelope| !envelope.items.is_empty()) {
+            crate::shared::persistence::rich_telemetry::store_envelope_context(conn, project_id, &item.archive_hash, &envelope)?;
+            if native_report.is_none() && envelope.find_event_payload().is_none() {
+                self.repos.queue.remove(conn, &item.archive_hash)?;
+                return Ok(());
+            }
+        }
 
         // Try parsing as raw JSON first, then as envelope format
-        let sentry_report: SentryReport = self.parse_payload(&decompressed)?;
+        let mut sentry_report: SentryReport = match native_report {
+            Some(report) => report,
+            None => self.parse_payload(decompressed)?,
+        };
+
+        sentry_report.resolve_exception_thread_stacks();
+
+        // The event savepoint may roll back a duplicate without discarding newer
+        // session updates carried by the same envelope.
+        let result = conn.transaction(|conn| self.store_event(conn, item, project_id, session_id, &sentry_report));
+        match result {
+            Ok(()) | Err(DomainError::DuplicateEventId(_)) => {
+                self.repos.queue.remove(conn, &item.archive_hash)?;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn store_event(
+        &self,
+        conn: &mut DbConnection,
+        item: &QueueItem,
+        project_id: i32,
+        session_id: Option<i32>,
+        sentry_report: &SentryReport,
+    ) -> Result<(), DomainError> {
 
         let event_id = sentry_report
             .event_id
             .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .map(|id| uuid::Uuid::parse_str(&id).map(|id| id.simple().to_string()).unwrap_or(id))
+            .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
 
         let timestamp = self.parse_timestamp(&sentry_report.timestamp);
 
@@ -132,13 +163,13 @@ impl DigestReportUseCase {
             self.extract_app_info(conn, &sentry_report)?;
         let user_id = self.extract_user_info(conn, &sentry_report)?;
         let (exception_type_id, exception_message_id, stacktrace_id, issue_id) =
-            self.extract_exception_info(conn, &sentry_report)?;
+            self.extract_exception_info(conn, sentry_report, project_id)?;
 
         let new_report = NewReport {
             event_id,
             archive_hash: item.archive_hash.clone(),
             timestamp,
-            project_id: archive.project_id,
+            project_id,
             platform_id,
             environment_id,
             os_name_id,
@@ -167,7 +198,6 @@ impl DigestReportUseCase {
         self.extract_tags(conn, report_id, &sentry_report)?;
         self.extract_contexts(conn, report_id, &sentry_report)?;
         self.extract_breadcrumbs(conn, report_id, &sentry_report)?;
-        self.repos.queue.remove(conn, &item.archive_hash)?;
 
         Ok(())
     }
@@ -364,56 +394,42 @@ impl DigestReportUseCase {
             return Ok(None);
         }
 
-        // Process the first (typically only) session
-        let session_data = session_payloads[0];
-        let session = match SentrySession::parse(session_data) {
-            Some(s) => s,
-            None => {
-                warn!("Failed to parse session payload");
-                return Ok(None);
-            }
-        };
-
-        // Get or create status_id
-        let status_id = self
-            .repos
-            .session_status
-            .get_or_create(conn, &session.status)?;
-
-        // Get or create release_id (optional)
-        let release_id = match &session.attrs.release {
-            Some(r) => Some(self.repos.session_release.get_or_create(conn, r)?),
-            None => None,
-        };
-
-        // Get or create environment_id (optional)
-        let environment_id = match &session.attrs.environment {
-            Some(env) => Some(self.repos.session_environment.get_or_create(conn, env)?),
-            None => None,
-        };
-
-        let new_session = NewSessionModel {
-            project_id,
-            sid: session.sid.clone(),
-            init: if session.init { 1 } else { 0 },
-            started_at: session.started.clone(),
-            timestamp: session
-                .timestamp
-                .clone()
-                .unwrap_or_else(|| session.started.clone()),
-            errors: session.errors,
-            status_id,
-            release_id,
-            environment_id,
-        };
-
-        match self.repos.session.upsert(conn, new_session) {
-            Ok(session_id) => Ok(Some(session_id)),
-            Err(e) => {
-                warn!(error = %e, sid = %session.sid, "Failed to store session during digest");
-                Ok(None)
+        let mut stored_id = None;
+        let single_session = session_payloads.len() == 1;
+        for session_data in session_payloads {
+            let session = SentrySession::parse(session_data)
+                .ok_or_else(|| DomainError::InvalidRequest("Invalid session payload".into()))?;
+            let status_id = self.repos.session_status.get_or_create(conn, &session.status)?;
+            let release_id = match &session.attrs.release {
+                Some(value) => Some(self.repos.session_release.get_or_create(conn, value)?),
+                None => None,
+            };
+            let environment_id = match &session.attrs.environment {
+                Some(value) => Some(self.repos.session_environment.get_or_create(conn, value)?),
+                None => None,
+            };
+            let new_session = NewSessionModel {
+                project_id,
+                sid: session.sid.clone(),
+                init: i32::from(session.init),
+                started_at: session.started.clone(),
+                timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+                errors: session.errors,
+                status_id,
+                release_id,
+                environment_id,
+                distinct_id: session.distinct_id_hash(),
+                sequence: session.sequence_decimal(),
+                duration: session.duration,
+                abnormal_mechanism: session.abnormal_mechanism.clone(),
+            };
+            let id = self.repos.session.upsert(conn, new_session)?;
+            if single_session {
+                stored_id = Some(id);
             }
         }
+        // An envelope may contain unrelated sessions; do not invent an event association.
+        Ok(stored_id)
     }
 
     fn get_or_create_unwrap<F>(
@@ -602,7 +618,7 @@ impl DigestReportUseCase {
         report: &SentryReport,
     ) -> Result<Option<i32>, DomainError> {
         match report.user.as_ref().and_then(|u| u.id.as_ref()) {
-            Some(user_id) => Ok(Some(self.repos.user.get_or_create(conn, user_id)?)),
+            Some(user_id) => Ok(Some(self.repos.user.get_or_create(conn, &self.compute_hash(user_id.as_bytes()))?)),
             None => Ok(None),
         }
     }
@@ -611,6 +627,7 @@ impl DigestReportUseCase {
         &self,
         conn: &mut DbConnection,
         report: &SentryReport,
+        project_id: i32,
     ) -> Result<ExceptionIds, DomainError> {
         let exception = report
             .exception
@@ -635,35 +652,45 @@ impl DigestReportUseCase {
             None => None,
         };
 
-        let in_app_frames = report.extract_in_app_frames();
-        let (fingerprint_hash, stacktrace_hash) = if !in_app_frames.is_empty() {
-            let fingerprint_data = in_app_frames
-                .iter()
-                .map(|f| {
-                    format!(
-                        "{}:{}:{}",
-                        f.filename.as_deref().unwrap_or(""),
-                        f.function.as_deref().unwrap_or(""),
-                        f.lineno.unwrap_or(0)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("|");
-            let fingerprint = self.compute_hash(fingerprint_data.as_bytes());
+        if exception.is_none() && matches!(report.level.as_deref(), Some("info" | "debug")) {
+            return Ok((None, None, None, None));
+        }
 
-            let all_frames = exception
-                .and_then(|e| e.stacktrace.as_ref())
-                .and_then(|s| s.frames.as_ref());
-
-            let stacktrace_hash = all_frames.map(|frames| {
-                let frames_json = serde_json::to_string(frames).unwrap_or_default();
-                self.compute_hash(frames_json.as_bytes())
-            });
-
-            (Some(fingerprint), stacktrace_hash)
-        } else {
-            (None, None)
+        let all_frames = exception.and_then(|exception| exception.stacktrace.as_ref()).and_then(|trace| trace.frames.as_ref());
+        let mut grouping_frames = report.extract_in_app_frames();
+        if grouping_frames.is_empty() {
+            grouping_frames = all_frames.map(|frames| frames.iter().collect()).unwrap_or_default();
+        }
+        let fingerprint_hash = if grouping_frames.is_empty() { None } else {
+            let frames: Vec<serde_json::Value> = grouping_frames.iter().map(|frame| {
+                serde_json::json!([frame.filename, frame.function, frame.lineno, frame.package,
+                    if frame.function.is_none() { frame.extra.get("instruction_addr") } else { None }])
+            }).collect();
+            Some(self.compute_hash(serde_json::to_string(&frames).unwrap_or_default().as_bytes()))
         };
+        let stacktrace_hash = all_frames.map(|frames| self.compute_hash(serde_json::to_string(frames).unwrap_or_default().as_bytes()));
+
+        // Explicit SDK fingerprints override grouping, never event occurrence identity.
+        // Default grouping is deliberately local, not a claim of Sentry algorithm parity.
+        let default_group = fingerprint_hash.clone().map(|stack| self.compute_hash(
+            serde_json::json!([report.platform, exception.and_then(|value| value.exception_type.as_ref()), stack]).to_string().as_bytes()
+        )).unwrap_or_else(|| self.compute_hash(
+            serde_json::json!({
+                "platform": report.platform,
+                "exception": exception.map(|value| (&value.exception_type, &value.value)),
+                "message": report.unknown.get("message"),
+                "logentry": report.unknown.get("logentry"),
+            }).to_string().as_bytes()
+        ));
+        let fingerprints = report.unknown.get("fingerprint").and_then(|value| value.as_array());
+        let values: Vec<String> = match fingerprints.filter(|values| !values.is_empty() && values.iter().all(|value| value.is_string())) {
+            Some(values) => values.iter().map(|value| {
+                let value = value.as_str().unwrap_or_default();
+                if value.replace(' ', "") == "{{default}}" { default_group.clone() } else { value.to_owned() }
+            }).collect(),
+            None => vec![default_group],
+        };
+        let fingerprint_hash = Some(self.compute_hash(serde_json::json!([project_id, values]).to_string().as_bytes()));
 
         let issue_id = match &fingerprint_hash {
             Some(fp) => {
@@ -739,8 +766,16 @@ impl DigestReportUseCase {
         // Try envelope format (from /envelope endpoint)
         if let Some(envelope) = Envelope::parse(data) {
             if let Some(event_payload) = envelope.find_event_payload() {
-                return serde_json::from_slice(event_payload)
-                    .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)));
+                let mut report: SentryReport = serde_json::from_slice(event_payload)
+                    .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)))?;
+                if let (Some(header_id), Some(payload_id)) = (&envelope.header.event_id, &report.event_id) {
+                    let normalize = |id: &str| uuid::Uuid::parse_str(id).map(|id| id.simple().to_string()).unwrap_or_else(|_| id.to_owned());
+                    if normalize(header_id) != normalize(payload_id) {
+                        return Err(DomainError::Serialization("Envelope and event IDs differ".to_owned()));
+                    }
+                }
+                report.event_id = report.event_id.or(envelope.header.event_id);
+                return Ok(report);
             }
             return Err(DomainError::Serialization(
                 "No event found in envelope".to_string(),

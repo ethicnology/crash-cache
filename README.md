@@ -77,7 +77,7 @@ This starts three services:
 
 3. Create a project:
 ```bash
-docker exec -it crash-cache-server crash-cache project create --name "my-app"
+docker exec -it crash-cache-server crash-cache project create "my-app"
 # Output: DSN: http://<key>@localhost:3000/<project_id>
 ```
 
@@ -110,7 +110,7 @@ cp .env.example .env
 
 3. Create a project:
 ```bash
-./target/release/crash-cache project create --name "my-app"
+./target/release/crash-cache project create "my-app"
 # Output: DSN: http://<key>@localhost:3000/<project_id>
 ```
 
@@ -120,6 +120,10 @@ cp .env.example .env
 ```
 
 5. Configure your Sentry SDK with the DSN from step 3.
+
+## Optional native crash and observability laboratory
+
+For an isolated Podman or Docker deployment with pinned Symbolicator, a private symbol source and optional ready-to-provision Metabase dashboards, follow [the observability laboratory guide](deploy/observability/README.md). Its project and volumes are separate from the root Compose deployment. [Session and analytics semantics](docs/observability.md) explain installation counting, healthy-device observations and deduplication limits.
 
 ## Configuration
 
@@ -204,7 +208,7 @@ Services:
 crash-cache serve                      # Start the API server
 
 # Project management
-crash-cache project create [--name NAME] [--key KEY]
+crash-cache project create [NAME] [--key KEY]
 crash-cache project list
 crash-cache project delete <id>
 
@@ -276,9 +280,11 @@ crash-cache accepts standard Sentry SDK payloads. Configure any Sentry SDK with 
 | iOS | https://docs.sentry.io/platforms/apple/ |
 | Android | https://docs.sentry.io/platforms/android/ |
 
-Replace the DSN in the SDK configuration with the one from `crash-cache project create`.
+Use the key and project ID from `crash-cache project create`, with the client-reachable ingestion scheme, host and port. The printed DSN uses the server bind address, which may need replacement behind a container or HTTPS proxy; see [client DSN configuration](deploy/observability/README.md#create-a-project-and-configure-client-dsns).
 
 ## Analytics with Metabase
+
+Use the [generic dashboard guide](docs/metabase.md) for the five maintained views and the [deployment and provisioning guide](deploy/observability/README.md) for project creation, client DSNs, read-only access and optional public navigation. [Session and observation semantics](docs/observability.md) and [measured validation](docs/observability-validation.md) distinguish supported behavior from optional instrumentation and remaining limitations.
 
 When using Docker Compose, Metabase is automatically deployed for analytics dashboards:
 

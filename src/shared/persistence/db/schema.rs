@@ -118,6 +118,10 @@ diesel::table! {
         status_id -> Integer,
         release_id -> Nullable<Integer>,
         environment_id -> Nullable<Integer>,
+        distinct_id -> Nullable<Text>,
+        sequence -> Text,
+        duration -> Nullable<Double>,
+        abnormal_mechanism -> Nullable<Text>,
     }
 }
 

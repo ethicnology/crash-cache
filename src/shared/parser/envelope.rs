@@ -41,54 +41,25 @@ pub struct ItemHeader {
 
 impl Envelope {
     pub fn parse(data: &[u8]) -> Option<Self> {
-        let mut lines = data.split(|&b| b == b'\n');
-
-        let header_line = lines.next()?;
-        let header: EnvelopeHeader = serde_json::from_slice(header_line).ok()?;
-
+        let header_end = data.iter().position(|&byte| byte == b'\n').unwrap_or(data.len());
+        let header = serde_json::from_slice(&data[..header_end]).ok()?;
+        let mut offset = (header_end + 1).min(data.len());
         let mut items = Vec::new();
-        while let Some(item_header_line) = lines.next() {
-            if item_header_line.is_empty() {
-                continue;
-            }
-
-            let item_header: ItemHeader = match serde_json::from_slice(item_header_line) {
-                Ok(h) => h,
-                Err(_) => continue,
-            };
-
-            let payload = if let Some(length) = item_header.length {
-                let remaining: Vec<u8> = lines
-                    .clone()
-                    .flat_map(|l| {
-                        let mut v = l.to_vec();
-                        v.push(b'\n');
-                        v
-                    })
-                    .collect();
-
-                let payload = remaining.get(..length)?.to_vec();
-
-                let mut consumed = 0;
-                while consumed < length {
-                    if let Some(line) = lines.next() {
-                        consumed += line.len() + 1;
-                    } else {
-                        break;
-                    }
-                }
-                payload
-            } else {
-                let next_line = lines.next().unwrap_or(&[]);
-                next_line.to_vec()
-            };
-
-            items.push(EnvelopeItem {
-                header: item_header,
-                payload,
+        while offset < data.len() {
+            let header_length = data[offset..].iter().position(|&byte| byte == b'\n')?;
+            let payload_start = offset + header_length + 1;
+            let item_header: ItemHeader = serde_json::from_slice(&data[offset..payload_start - 1]).ok()?;
+            let length = item_header.length.unwrap_or_else(|| {
+                data[payload_start..].iter().position(|&byte| byte == b'\n').unwrap_or(data.len() - payload_start)
             });
+            let payload_end = payload_start.checked_add(length)?;
+            let payload = data.get(payload_start..payload_end)?.to_vec();
+            if payload_end < data.len() && data[payload_end] != b'\n' {
+                return None;
+            }
+            items.push(EnvelopeItem { header: item_header, payload });
+            offset = payload_end.saturating_add(1);
         }
-
         Some(Envelope { header, items })
     }
 
@@ -112,5 +83,34 @@ impl Envelope {
             .filter(|item| item.header.item_type == "session")
             .map(|item| item.payload.as_slice())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::Envelope;
+
+    #[test]
+    fn rejects_truncated_explicit_payload() {
+        assert!(Envelope::parse(b"{}\n{\"type\":\"attachment\",\"length\":4}\nabc").is_none());
+    }
+
+    #[test]
+    fn rejects_non_newline_after_explicit_payload() {
+        assert!(Envelope::parse(b"{}\n{\"type\":\"event\",\"length\":2}\n{}garbage").is_none());
+    }
+
+    #[test]
+    fn rejects_malformed_item_header_instead_of_silently_skipping() {
+        assert!(Envelope::parse(b"{}\nnot-json\n{}\n").is_none());
+    }
+
+    #[test]
+    fn preserves_binary_unknown_items_and_following_event() {
+        let data = b"{}\n{\"type\":\"future\",\"length\":4}\n\xff\n\x00x\n{\"type\":\"event\"}\n{}";
+        let envelope = Envelope::parse(data).unwrap();
+        assert_eq!(envelope.items.len(), 2);
+        assert_eq!(envelope.items[0].payload, b"\xff\n\x00x");
+        assert_eq!(envelope.find_event_payload(), Some(b"{}".as_slice()));
     }
 }

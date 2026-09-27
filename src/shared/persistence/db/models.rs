@@ -133,6 +133,10 @@ pub struct SessionModel {
     pub status_id: i32,
     pub release_id: Option<i32>,
     pub environment_id: Option<i32>,
+    pub distinct_id: Option<String>,
+    pub sequence: String,
+    pub duration: Option<f64>,
+    pub abnormal_mechanism: Option<String>,
 }
 
 #[derive(Insertable, Debug)]
@@ -147,6 +151,10 @@ pub struct NewSessionModel {
     pub status_id: i32,
     pub release_id: Option<i32>,
     pub environment_id: Option<i32>,
+    pub distinct_id: Option<String>,
+    pub sequence: String,
+    pub duration: Option<f64>,
+    pub abnormal_mechanism: Option<String>,
 }
 
 // ============================================

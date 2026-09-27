@@ -1,0 +1,9 @@
+bind: 0.0.0.0:3021
+cache_dir: /data
+logging:
+  level: info
+  format: json
+# Required for the operator-configured symbol server on the private Compose network.
+# Events cannot supply symbol sources; do not expose this service to clients.
+connect_to_reserved_ips: true
+# No telemetry DSN or externally published API port is configured.

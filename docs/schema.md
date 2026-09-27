@@ -66,6 +66,10 @@ erDiagram
         INTEGER status_id FK
         INTEGER release_id FK
         INTEGER environment_id FK
+        TEXT distinct_id "SHA-256 installation identity"
+        TEXT sequence "Unsigned logical clock"
+        DOUBLE duration "Seconds"
+        TEXT abnormal_mechanism
     }
     
     %% ============================================
@@ -440,3 +444,17 @@ Aggregated request latency metrics per endpoint.
 | `idx_bucket_rate_limit_dsn_start` | bucket_rate_limit_dsn | bucket_start | Time-based cleanup |
 | `idx_bucket_rate_limit_subnet_start` | bucket_rate_limit_subnet | bucket_start | Time-based cleanup |
 | `idx_bucket_request_latency_start` | bucket_request_latency | bucket_start | Time-based cleanup |
+
+## Session analytics
+
+See [application sessions and diagnostics](observability.md) for identity, ordering, supported protocol scope and read-only dashboard queries. Session uniqueness is `(project_id, sid)`; event occurrence uniqueness is `(project_id, event_id)`.
+
+## Structured logs and attachments
+
+Migration `20260926000001_rich_telemetry` adds independent log records and an attachment index. These records never manufacture error reports or issues. Existing event/session identities and migrations remain unchanged.
+
+`telemetry_log` stores `project_id`, `archive_hash`, `item_index`, `log_index`, numeric Unix-seconds `timestamp`, nullable `trace_id` and `span_id`, `level`, `body`, nullable `severity_number`, typed `attributes` JSONB and server-side `created_at`. Uniqueness is `(archive_hash, item_index, log_index)`: an exact envelope retry is idempotent, while identical log text in another envelope remains a separate observation. Sentry logs do not supply an occurrence UUID; this deliberately does not promise deduplication of rebatched logs. A trace can contain many distinct logs. Project/time and project/trace indexes support bounded analytics. The accepted envelope format follows [Sentry structured logs](https://develop.sentry.dev/sdk/telemetry/logs/) and Dart SDK 9.30.1: `type: log`, payload `{ "items": [...] }`, with typed scalar or array attributes. Malformed batches are rejected atomically; at most 10,000 logs are admitted per envelope within the existing byte limits.
+
+`attachment_metadata` stores `project_id`, `archive_hash`, normalized nullable `event_id`, `item_index`, nullable `filename`, `attachment_type` and `content_type`, `size_bytes`, and server-side `created_at`. Uniqueness is `(archive_hash, item_index)`. Join a report using both project and event ID; attachment-only envelopes can arrive before their associated event. Join `archive.created_at` for receipt time rather than client event time. Screenshots, scene trees, view hierarchies and opaque Crashpad multipart attachments remain byte-exact inside the compressed archive; only metadata is copied into this index. There is no binary decoding, image display endpoint, or Crashpad breadcrumb-stream interpretation. Repeated attachments in changed envelopes count separately; deduplicate associated reports when computing coverage.
+
+Queryable frame variables and source context remain in `unwrap_stacktrace.frames` JSONB for the first exception. Further exceptions, event extras, and non-normalized fields remain in the raw archive rather than being promoted into dedicated analytics columns. Log-only and mixed session/log envelopes are archived and digested asynchronously; ordinary session-only ingestion retains its existing direct path.

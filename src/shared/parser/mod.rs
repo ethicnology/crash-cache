@@ -5,3 +5,5 @@ mod sentry_session;
 pub use envelope::{Envelope, EnvelopeHeader, EnvelopeItem, ItemHeader};
 pub use sentry_auth::{SentryAuth, SentryDsn};
 pub use sentry_session::SentrySession;
+
+pub mod sentry_log;

@@ -1,7 +1,7 @@
 # =============================================================================
 # Build Stage
 # =============================================================================
-FROM rust:1.93-trixie as builder
+FROM rust:1.98.1-trixie as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -34,12 +34,12 @@ RUN mkdir -p .cargo && \
     echo '[profile.release.package."*"]' >> .cargo/config.toml && \
     echo 'opt-level = 1' >> .cargo/config.toml
 
-RUN cargo build --release -j 1
+RUN cargo build --locked --release -j 1
 
 # =============================================================================
 # Runtime Stage
 # =============================================================================
-FROM rust:1.93-trixie
+FROM rust:1.98.1-trixie
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

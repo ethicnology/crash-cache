@@ -121,6 +121,14 @@ pub async fn run_server() {
         "Project cache initialized"
     );
 
+    let evidence_router = crate::features::evidence::create_router(
+        pool.clone(),
+        settings.metabase_auth_url.as_deref(),
+        settings.max_compressed_payload_bytes,
+        settings.max_uncompressed_payload_bytes,
+    )
+    .expect("Invalid evidence authentication configuration");
+
     let app_state = AppState {
         ingest_use_case,
         compression_semaphore,
@@ -191,7 +199,7 @@ pub async fn run_server() {
     let health_router = create_health_router(app_state);
 
     // Merge routers
-    let app = api_router.merge(health_router);
+    let app = api_router.merge(health_router).merge(evidence_router);
 
     let addr = settings.server_addr();
     info!(addr = %addr, "Server listening");

@@ -1,0 +1,9 @@
+[
+  {
+    "type": "http",
+    "id": "application-symbols",
+    "url": "http://symbols:8000/.build-id/",
+    "layout": {"type": "native"},
+    "is_public": false
+  }
+]

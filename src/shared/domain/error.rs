@@ -38,3 +38,9 @@ pub enum DomainError {
     #[error("Duplicate event_id: {0}")]
     DuplicateEventId(String),
 }
+
+impl From<diesel::result::Error> for DomainError {
+    fn from(error: diesel::result::Error) -> Self {
+        Self::Database(error.to_string())
+    }
+}
