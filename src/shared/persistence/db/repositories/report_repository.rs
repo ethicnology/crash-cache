@@ -51,16 +51,6 @@ impl ReportRepository {
         conn: &mut DbConnection,
         new_report: NewReport,
     ) -> Result<i32, DomainError> {
-        let exists: i64 = report::table
-            .filter(report::event_id.eq(&new_report.event_id))
-            .count()
-            .get_result(conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
-
-        if exists > 0 {
-            return Err(DomainError::DuplicateEventId(new_report.event_id));
-        }
-
         let model = NewReportModel {
             event_id: new_report.event_id,
             archive_hash: new_report.archive_hash,
@@ -93,9 +83,13 @@ impl ReportRepository {
 
         let id = diesel::insert_into(report::table)
             .values(&model)
+            .on_conflict((report::project_id, report::event_id))
+            .do_nothing()
             .returning(report::id)
             .get_result::<i32>(conn)
-            .map_err(|e| DomainError::Database(e.to_string()))?;
+            .optional()
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .ok_or_else(|| DomainError::DuplicateEventId(model.event_id.clone()))?;
 
         Ok(id)
     }

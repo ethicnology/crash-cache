@@ -14,7 +14,7 @@ impl ArchiveRepository {
         Self::default()
     }
 
-    pub fn save(&self, conn: &mut DbConnection, arch: &Archive) -> Result<(), DomainError> {
+    pub fn save(&self, conn: &mut DbConnection, arch: &Archive) -> Result<bool, DomainError> {
         let model = ArchiveModel {
             hash: arch.hash.clone(),
             project_id: arch.project_id,
@@ -23,14 +23,14 @@ impl ArchiveRepository {
             created_at: arch.created_at.naive_utc(),
         };
 
-        diesel::insert_into(archive::table)
+        let inserted = diesel::insert_into(archive::table)
             .values(&model)
             .on_conflict(archive::hash)
             .do_nothing()
             .execute(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;
 
-        Ok(())
+        Ok(inserted > 0)
     }
 
     pub fn find_by_hash(

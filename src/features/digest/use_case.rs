@@ -44,6 +44,7 @@ impl DigestReportUseCase {
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
         let items = self.repos.queue.dequeue_batch(&mut conn, limit)?;
+        drop(conn);
         let mut processed_count = 0u32;
 
         for item in items {
@@ -79,11 +80,7 @@ impl DigestReportUseCase {
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
-        conn.transaction(|conn| {
-            self.process_single_item_tx(conn, item)
-                .map_err(|_| diesel::result::Error::RollbackTransaction)
-        })
-        .map_err(|e| DomainError::Database(e.to_string()))
+        conn.transaction(|conn| self.process_single_item_tx(conn, item))
     }
 
     fn process_single_item_tx(
@@ -105,12 +102,29 @@ impl DigestReportUseCase {
         let session_id = self.extract_and_store_session(conn, &decompressed, archive.project_id)?;
 
         // Try parsing as raw JSON first, then as envelope format
-        let sentry_report: SentryReport = self.parse_payload(&decompressed)?;
+
+        let sentry_report = self.parse_payload(&decompressed)?;
+        let result = conn.transaction(|conn| self.store_event(conn, item, archive.project_id, session_id, &sentry_report));
+        match result {
+            Ok(_) | Err(DomainError::DuplicateEventId(_)) => self.repos.queue.remove(conn, &item.archive_hash),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn store_event(
+        &self,
+        conn: &mut DbConnection,
+        item: &QueueItem,
+        project_id: i32,
+        session_id: Option<i32>,
+        sentry_report: &SentryReport,
+    ) -> Result<i32, DomainError> {
 
         let event_id = sentry_report
             .event_id
             .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .map(|id| uuid::Uuid::parse_str(&id).map(|id| id.simple().to_string()).unwrap_or(id))
+            .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
 
         let timestamp = self.parse_timestamp(&sentry_report.timestamp);
 
@@ -132,13 +146,13 @@ impl DigestReportUseCase {
             self.extract_app_info(conn, &sentry_report)?;
         let user_id = self.extract_user_info(conn, &sentry_report)?;
         let (exception_type_id, exception_message_id, stacktrace_id, issue_id) =
-            self.extract_exception_info(conn, &sentry_report)?;
+            self.extract_exception_info(conn, sentry_report)?;
 
         let new_report = NewReport {
             event_id,
             archive_hash: item.archive_hash.clone(),
             timestamp,
-            project_id: archive.project_id,
+            project_id,
             platform_id,
             environment_id,
             os_name_id,
@@ -167,9 +181,8 @@ impl DigestReportUseCase {
         self.extract_tags(conn, report_id, &sentry_report)?;
         self.extract_contexts(conn, report_id, &sentry_report)?;
         self.extract_breadcrumbs(conn, report_id, &sentry_report)?;
-        self.repos.queue.remove(conn, &item.archive_hash)?;
 
-        Ok(())
+        Ok(report_id)
     }
 
     /// Extract every `event.tags` K/V into the `report_tag` join table.
@@ -739,8 +752,16 @@ impl DigestReportUseCase {
         // Try envelope format (from /envelope endpoint)
         if let Some(envelope) = Envelope::parse(data) {
             if let Some(event_payload) = envelope.find_event_payload() {
-                return serde_json::from_slice(event_payload)
-                    .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)));
+                let mut report: SentryReport = serde_json::from_slice(event_payload)
+                    .map_err(|e| DomainError::Serialization(format!("Invalid event JSON: {}", e)))?;
+                if let (Some(header_id), Some(payload_id)) = (&envelope.header.event_id, &report.event_id) {
+                    let normalize = |id: &str| uuid::Uuid::parse_str(id).map(|id| id.simple().to_string()).unwrap_or_else(|_| id.to_owned());
+                    if normalize(header_id) != normalize(payload_id) {
+                        return Err(DomainError::Serialization("Envelope and event IDs differ".to_owned()));
+                    }
+                }
+                report.event_id = report.event_id.or(envelope.header.event_id);
+                return Ok(report);
             }
             return Err(DomainError::Serialization(
                 "No event found in envelope".to_string(),

@@ -515,3 +515,40 @@ fn test_process_multiple_events() {
 
     assert_eq!(queue_repo.count_pending(&mut conn).unwrap(), 0);
 }
+
+    #[test]
+fn protocol_event_retries_are_idempotent_and_project_scoped() {
+    let (repos, pool, first_project) = setup_test_db();
+    let second_project = repos.project.create(None, None).unwrap();
+    let ingest = IngestReportUseCase::new(repos.archive.clone(), repos.queue.clone(), repos.project.clone());
+    let digest = DigestReportUseCase::new(repos.clone(), pool.clone(), GzipCompressor::new());
+    let mut conn = pool.get().unwrap();
+    for (project, attempt, event_id) in [
+        (first_project, 1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        (first_project, 2, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        (second_project, 3, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        (first_project, 4, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    ] {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "event_id": event_id, "timestamp": "2026-01-22T10:00:00Z",
+            "extra": {"attempt": attempt}, "message": "same error"
+        })).unwrap();
+        let (hash, compressed) = compress_and_hash(&payload);
+        ingest.execute(&mut conn, project, hash, compressed, None).unwrap();
+        digest.process_batch(10).unwrap();
+    }
+    assert_eq!(repos.report.count_by_project(first_project).unwrap(), 2);
+    assert_eq!(repos.report.count_by_project(second_project).unwrap(), 1);
+    assert_eq!(repos.queue_error.count(&mut conn).unwrap(), 0);
+}
+    #[test]
+fn protocol_envelope_header_event_id_is_preserved() {
+    let (repos, pool, project_id) = setup_test_db();
+    let ingest = IngestReportUseCase::new(repos.archive.clone(), repos.queue.clone(), repos.project.clone());
+    let digest = DigestReportUseCase::new(repos.clone(), pool.clone(), GzipCompressor::new());
+    let payload = b"{\"event_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n{\"type\":\"event\"}\n{\"message\":\"test\"}";
+    let (hash, compressed) = compress_and_hash(payload);
+    ingest.execute(&mut pool.get().unwrap(), project_id, hash, compressed, None).unwrap();
+    digest.process_batch(10).unwrap();
+    assert!(repos.report.find_by_event_id("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap().is_some());
+}
