@@ -6,6 +6,7 @@ use tracing::{info, warn};
 
 use super::DigestReportUseCase;
 
+#[derive(Clone)]
 pub struct DigestWorker {
     digest_use_case: DigestReportUseCase,
     interval_secs: u64,
@@ -51,7 +52,10 @@ impl DigestWorker {
                 break;
             }
 
-            self.process_tick();
+            let worker = self.clone();
+            if let Err(error) = tokio::task::spawn_blocking(move || worker.process_tick()).await {
+                warn!(error = %error, "Processing worker failed");
+            }
         }
     }
 

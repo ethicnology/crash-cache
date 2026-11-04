@@ -478,54 +478,45 @@ async fn prepare_payload(
     semaphore: &Semaphore,
     max_size: usize,
 ) -> Result<(String, Vec<u8>, Option<i32>), (StatusCode, Json<serde_json::Value>)> {
-    let is_gzip = headers
-        .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("gzip"))
-        .unwrap_or(false);
+    let gzip = content_is_gzip(headers)?;
+    let _permit = semaphore.try_acquire().map_err(|_| (
+        StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Service overloaded, please retry"}))
+    ))?;
+    let body = body.to_vec();
+    let result = tokio::task::spawn_blocking(move || {
+        let payload = decode_body(body, gzip, max_size)?;
+        let original_size = payload.len() as i32;
+        let compressed = compress(&payload).map_err(|_| (
+            StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Compression failed"}))
+        ))?;
+        Ok((compute_hash(&compressed), compressed, Some(original_size)))
+    }).await.map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Payload worker failed"}))
+    ))?;
+    result
+}
 
-    if is_gzip {
-        let hash = compute_hash(body);
-        Ok((hash, body.to_vec(), None))
-    } else {
-        if body.len() > max_size {
-            return Err((
-                StatusCode::PAYLOAD_TOO_LARGE,
-                Json(serde_json::json!({
-                    "error": format!("Payload too large: {} bytes (max {})", body.len(), max_size)
-                })),
-            ));
-        }
-
-        let permit = semaphore.try_acquire();
-        if permit.is_err() {
-            warn!("Compression semaphore exhausted - service overloaded");
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": "Service overloaded, please retry"})),
-            ));
-        }
-
-        let original_size = body.len() as i32;
-        let body_clone = body.to_vec();
-        let compressed = tokio::task::spawn_blocking(move || compress(&body_clone))
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                )
-            })?
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                )
-            })?;
-
-        let hash = compute_hash(&compressed);
-        Ok((hash, compressed, Some(original_size)))
+fn content_is_gzip(headers: &HeaderMap) -> Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    match headers.get("content-encoding").and_then(|value| value.to_str().ok()).unwrap_or("identity") {
+        "gzip" => Ok(true),
+        "identity" => Ok(false),
+        _ => Err((StatusCode::UNSUPPORTED_MEDIA_TYPE, Json(serde_json::json!({"error":"Unsupported content encoding"})))),
     }
+}
+
+fn decode_body(body: Vec<u8>, gzip: bool, max_size: usize) -> Result<Vec<u8>, (StatusCode, Json<serde_json::Value>)> {
+    let payload = if gzip {
+        let mut payload = Vec::new();
+        GzDecoder::new(body.as_slice()).take(max_size.saturating_add(1) as u64)
+            .read_to_end(&mut payload).map_err(|_| (
+                StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Invalid gzip payload"}))
+            ))?;
+        payload
+    } else { body };
+    if payload.len() > max_size || payload.len() > i32::MAX as usize {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"error":"Uncompressed payload exceeds limit"}))));
+    }
+    Ok(payload)
 }
 
 fn compute_hash(data: &[u8]) -> String {
@@ -682,5 +673,31 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         regurgitated,
         orphaned,
         updated_at: Some(Instant::now()),
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    #[tokio::test]
+    async fn protocol_rejects_oversized_gzip_after_decoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        let body = compress(&vec![b'x'; 1024]).unwrap();
+        let result = prepare_payload(&headers, &body, &Semaphore::new(1), 16).await;
+        assert_eq!(result.unwrap_err().0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    #[tokio::test]
+    async fn protocol_rejects_invalid_gzip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+        assert!(prepare_payload(&headers, b"invalid", &Semaphore::new(1), 1024).await.is_err());
+    }
+    #[tokio::test]
+    async fn protocol_rejects_unsupported_encoding() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "br".parse().unwrap());
+        let result = prepare_payload(&headers, b"payload", &Semaphore::new(1), 1024).await;
+        assert_eq!(result.unwrap_err().0, StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 }
