@@ -13,4 +13,3 @@ A session is unique within a project by its UUID `sid`. Retries keep this ID. Se
 ## Existing database upgrade
 
 The additive migration reconstructs timestamp-based sequence values for previously stored non-initial sessions so that a delayed old update cannot replace their latest state. Initial rows retain sequence zero. Historical explicit SDK sequence values were not stored by the old schema and cannot be recovered from session-only ingestion; avoid assuming recovery of that unavailable information. If a legacy update timestamp is malformed, migration stops with the affected row ID and a repair instruction. Review and repair that row deliberately, then retry; the migration does not delete the session or silently mark it healthy. Run the migration transactionally, as the normal startup migration runner does. Downgrade refuses to restore global event-ID uniqueness when two projects legitimately contain the same event ID; it does not discard either report.
-
