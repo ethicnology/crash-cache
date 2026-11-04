@@ -1,0 +1,16 @@
+# Application sessions and diagnostics
+
+The supported individual session fields follow the [Sentry session protocol](https://develop.sentry.dev/sdk/telemetry/sessions/) (version 1.7.1, reviewed September 26, 2026). The protocol is a release-health transport, not a player-account system. Use one session owner per application process; disable independent automatic tracking in other embedded SDKs. Renderer handoffs do not start or end application sessions.
+
+## Identity and ordering
+
+Generate one random installation identifier, persist it locally outside cloud backup, and supply the same value as session `did` and event `user.id`. Do not use advertising, hardware, network, account, or invitation identifiers. Clearing application storage creates a new installation identity. A single person with multiple installations is counted multiple times. A shared installation is counted once. This identifier is pseudonymous, not anonymous.
+
+The normalized session and event user dimensions store a SHA-256 digest of that identifier, allowing SQL correlation without retaining its supplied value there. Archived envelopes still contain the original payload: hashing normalized columns is not a raw-archive privacy or retention policy. Production retention, deletion, access control and consent remain application/operator responsibilities.
+
+A session is unique within a project by its UUID `sid`. Retries keep this ID. Session state changes carry an increasing `seq`; the initial update forces sequence zero. Missing sequence uses the update timestamp in milliseconds. The complete unsigned 64-bit sequence is stored as decimal text and compared numerically. An atomic conflict update retains the state with the highest sequence and preserves installation identity, start, release and environment from the first received state. Receiving a delayed initial update records that initialization was seen without reopening a later crashed session. Duplicate sequence numbers do not replace state. The client must provide a complete state and must not change immutable attributes; sessions with missing identity cannot later be upgraded by changing `did`.
+
+## Existing database upgrade
+
+The additive migration reconstructs timestamp-based sequence values for previously stored non-initial sessions so that a delayed old update cannot replace their latest state. Initial rows retain sequence zero. Historical explicit SDK sequence values were not stored by the old schema and cannot be recovered from session-only ingestion; avoid assuming recovery of that unavailable information. If a legacy update timestamp is malformed, migration stops with the affected row ID and a repair instruction. Review and repair that row deliberately, then retry; the migration does not delete the session or silently mark it healthy. Run the migration transactionally, as the normal startup migration runner does. Downgrade refuses to restore global event-ID uniqueness when two projects legitimately contain the same event ID; it does not discard either report.
+

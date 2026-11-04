@@ -1,6 +1,6 @@
 use diesel::Connection;
 use sha2::{Digest, Sha256};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryBreadcrumb, SentryReport};
@@ -377,56 +377,42 @@ impl DigestReportUseCase {
             return Ok(None);
         }
 
-        // Process the first (typically only) session
-        let session_data = session_payloads[0];
-        let session = match SentrySession::parse(session_data) {
-            Some(s) => s,
-            None => {
-                warn!("Failed to parse session payload");
-                return Ok(None);
-            }
-        };
-
-        // Get or create status_id
-        let status_id = self
-            .repos
-            .session_status
-            .get_or_create(conn, &session.status)?;
-
-        // Get or create release_id (optional)
-        let release_id = match &session.attrs.release {
-            Some(r) => Some(self.repos.session_release.get_or_create(conn, r)?),
-            None => None,
-        };
-
-        // Get or create environment_id (optional)
-        let environment_id = match &session.attrs.environment {
-            Some(env) => Some(self.repos.session_environment.get_or_create(conn, env)?),
-            None => None,
-        };
-
-        let new_session = NewSessionModel {
-            project_id,
-            sid: session.sid.clone(),
-            init: if session.init { 1 } else { 0 },
-            started_at: session.started.clone(),
-            timestamp: session
-                .timestamp
-                .clone()
-                .unwrap_or_else(|| session.started.clone()),
-            errors: session.errors,
-            status_id,
-            release_id,
-            environment_id,
-        };
-
-        match self.repos.session.upsert(conn, new_session) {
-            Ok(session_id) => Ok(Some(session_id)),
-            Err(e) => {
-                warn!(error = %e, sid = %session.sid, "Failed to store session during digest");
-                Ok(None)
+        let mut stored_id = None;
+        let single_session = session_payloads.len() == 1;
+        let sessions = SentrySession::parse_batch(session_payloads)
+            .ok_or_else(|| DomainError::InvalidRequest("Invalid session payload".into()))?;
+        for session in sessions {
+            let status_id = self.repos.session_status.get_or_create(conn, &session.status)?;
+            let release_id = match &session.attrs.release {
+                Some(value) => Some(self.repos.session_release.get_or_create(conn, value)?),
+                None => None,
+            };
+            let environment_id = match &session.attrs.environment {
+                Some(value) => Some(self.repos.session_environment.get_or_create(conn, value)?),
+                None => None,
+            };
+            let new_session = NewSessionModel {
+                project_id,
+                sid: session.sid.clone(),
+                init: i32::from(session.init),
+                started_at: session.started.clone(),
+                timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
+                errors: session.errors,
+                status_id,
+                release_id,
+                environment_id,
+                distinct_id: session.distinct_id_hash(),
+                sequence: session.sequence_decimal(),
+                duration: session.duration,
+                abnormal_mechanism: session.abnormal_mechanism.clone(),
+            };
+            let id = self.repos.session.upsert(conn, new_session)?;
+            if single_session {
+                stored_id = Some(id);
             }
         }
+        // An envelope may contain unrelated sessions; do not invent an event association.
+        Ok(stored_id)
     }
 
     fn get_or_create_unwrap<F>(
@@ -615,7 +601,7 @@ impl DigestReportUseCase {
         report: &SentryReport,
     ) -> Result<Option<i32>, DomainError> {
         match report.user.as_ref().and_then(|u| u.id.as_ref()) {
-            Some(user_id) => Ok(Some(self.repos.user.get_or_create(conn, user_id)?)),
+            Some(user_id) => Ok(Some(self.repos.user.get_or_create(conn, &self.compute_hash(user_id.as_bytes()))?)),
             None => Ok(None),
         }
     }

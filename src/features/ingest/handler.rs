@@ -343,7 +343,7 @@ async fn envelope_report(
                 Json(serde_json::json!({"error": "Unsupported envelope items; expected event or individual session"})),
             );
         }
-        let sessions: Option<Vec<SentrySession>> = payloads.into_iter().map(SentrySession::parse).collect();
+        let sessions = SentrySession::parse_batch(payloads);
         let Some(sessions) = sessions else {
             return (
                 StatusCode::BAD_REQUEST,
@@ -455,6 +455,10 @@ fn store_session(
         status_id,
         release_id,
         environment_id,
+        distinct_id: session.distinct_id_hash(),
+        sequence: session.sequence_decimal(),
+        duration: session.duration,
+        abnormal_mechanism: session.abnormal_mechanism.clone(),
     };
 
     let session_id = state.session_repo.upsert(conn, new_session)?;
