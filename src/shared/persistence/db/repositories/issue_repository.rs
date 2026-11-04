@@ -22,25 +22,6 @@ impl IssueRepository {
         exception_type_id: Option<i32>,
         title: Option<String>,
     ) -> Result<i32, DomainError> {
-        if let Some(existing) = issue::table
-            .filter(issue::fingerprint_hash.eq(fingerprint_hash))
-            .select(IssueModel::as_select())
-            .first::<IssueModel>(conn)
-            .optional()
-            .map_err(|e| DomainError::Database(e.to_string()))?
-        {
-            let now = Utc::now().naive_utc();
-            diesel::update(issue::table.filter(issue::id.eq(existing.id)))
-                .set((
-                    issue::last_seen.eq(now),
-                    issue::event_count.eq(existing.event_count + 1),
-                ))
-                .execute(conn)
-                .map_err(|e| DomainError::Database(e.to_string()))?;
-
-            return Ok(existing.id);
-        }
-
         let now = Utc::now().naive_utc();
         let new_record = NewIssueModel {
             fingerprint_hash: fingerprint_hash.to_string(),
@@ -53,6 +34,9 @@ impl IssueRepository {
 
         let id = diesel::insert_into(issue::table)
             .values(&new_record)
+            .on_conflict(issue::fingerprint_hash)
+            .do_update()
+            .set((issue::last_seen.eq(now), issue::event_count.eq(issue::event_count + 1)))
             .returning(issue::id)
             .get_result::<i32>(conn)
             .map_err(|e| DomainError::Database(e.to_string()))?;

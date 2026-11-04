@@ -215,6 +215,13 @@ async fn store_report(
         Err(response) => return response,
     };
 
+    let event_id = match decompress(&compressed).ok().and_then(|payload| serde_json::from_slice::<serde_json::Value>(&payload).ok())
+        .and_then(|event| event.get("event_id").and_then(|id| id.as_str()).map(str::to_owned))
+        .and_then(|id| uuid::Uuid::parse_str(&id).ok()) {
+        Some(id) => id.simple().to_string(),
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Event requires a valid event_id"}))),
+    };
+
     match state.ingest_use_case.execute(
         &mut conn,
         project_id,
@@ -240,7 +247,7 @@ async fn store_report(
                     "Store OK"
                 );
             }
-            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
+            (StatusCode::OK, Json(serde_json::json!({"id": event_id})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -323,67 +330,66 @@ async fn envelope_report(
         }
     };
 
-    let has_event = envelope.find_event_payload().is_some();
-
+    let event_count = envelope.items.iter().filter(|item| item.header.item_type == "event").count();
+    if event_count > 1 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Envelope has multiple events"})));
+    }
+    let has_event = event_count == 1;
     if !has_event {
-        let session_payloads = envelope.find_session_payloads();
-        let mut sessions_stored = 0;
-        let mut first_error: Option<DomainError> = None;
-
-        for session_data in session_payloads {
-            if let Some(session) = SentrySession::parse(session_data) {
-                match store_session(&state, &mut conn, project_id, &session) {
-                    Ok(_sid_id) => {
-                        sessions_stored += 1;
-                    }
-                    Err(e) => {
-                        warn!(error = %e, sid = %session.sid, "Failed to store session");
-                        if first_error.is_none() {
-                            first_error = Some(e);
-                        }
-                    }
-                }
-            }
-        }
-
-        if sessions_stored > 0 {
-            info!(
-                project_id = %project_id,
-                sessions_stored,
-                payload_size,
-                duration_ms = start.elapsed().as_millis(),
-                "Envelope session OK"
-            );
+        let payloads = envelope.find_session_payloads();
+        if payloads.is_empty() {
             return (
-                StatusCode::OK,
-                Json(serde_json::json!({"sessions": sessions_stored})),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Unsupported envelope items; expected event or individual session"})),
             );
         }
-
-        if let Some(error) = first_error {
-            let response = map_domain_error_to_response(&error);
-            warn!(
-                project_id = %project_id,
-                payload_size,
-                status = response.0.as_u16(),
-                duration_ms = start.elapsed().as_millis(),
-                error = ?error,
-                "Envelope session FAIL"
+        let sessions: Option<Vec<SentrySession>> = payloads.into_iter().map(SentrySession::parse).collect();
+        let Some(sessions) = sessions else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid session payload"})),
             );
-            return response;
-        }
+        };
+        let result: Result<usize, DomainError> = conn.transaction(|conn| {
+            for session in &sessions {
+                store_session(&state, conn, project_id, session)?;
+            }
+            Ok(sessions.len())
+        });
+        return match result {
+            Ok(count) => (StatusCode::OK, Json(serde_json::json!({"sessions": count}))),
+            Err(error) => map_domain_error_to_response(&error),
+        };
+    }
 
-        warn!(
-            project_id = %project_id,
-            payload_size,
-            status = 400,
-            duration_ms = start.elapsed().as_millis(),
-            "Envelope empty"
-        );
-        return (
+    let payload_id = envelope.find_event_payload()
+        .and_then(|payload| serde_json::from_slice::<serde_json::Value>(payload).ok())
+        .and_then(|event| event.get("event_id").cloned());
+    // A supplied invalid ID must not become an absent ID during fallback.
+    let normalize_id = |id: &str| {
+        uuid::Uuid::parse_str(id)
+            .map(|id| id.simple().to_string())
+            .map_err(|_| ())
+    };
+    let header_id = envelope.header.event_id.as_deref()
+        .map(normalize_id)
+        .transpose();
+    let body_id = payload_id.as_ref()
+        .map(|id| id.as_str().ok_or(()).and_then(normalize_id))
+        .transpose();
+    let (header_id, body_id) = match (header_id, body_id) {
+        (Ok(header_id), Ok(body_id)) => (header_id, body_id),
+        _ => return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "No event or session in envelope"})),
-        );
+            Json(serde_json::json!({"error": "Invalid envelope or event event_id"})),
+        ),
+    };
+    if header_id.is_some() && body_id.is_some() && header_id != body_id {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Envelope and event IDs differ"})));
+    }
+    let event_id = header_id.or(body_id);
+    if has_event && event_id.is_none() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Event or attachment requires a valid event_id"})));
     }
 
     match state.ingest_use_case.execute(
@@ -411,7 +417,7 @@ async fn envelope_report(
                     "Envelope OK"
                 );
             }
-            (StatusCode::OK, Json(serde_json::json!({"id": result.hash})))
+            (StatusCode::OK, Json(serde_json::json!({"id": event_id})))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -699,5 +705,30 @@ mod protocol_tests {
         headers.insert("content-encoding", "br".parse().unwrap());
         let result = prepare_payload(&headers, b"payload", &Semaphore::new(1), 1024).await;
         assert_eq!(result.unwrap_err().0, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+    #[tokio::test]
+    async fn protocol_store_response_returns_event_id() {
+        use crate::shared::persistence::{establish_connection_pool, run_migrations, Repositories};
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:test@localhost/crash_cache_test".to_owned());
+        let pool = establish_connection_pool(&url, 10, 30);
+        run_migrations(&pool);
+        let repos = Repositories::new(pool.clone());
+        let project_id = repos.project.create(None, None).unwrap();
+        let state = AppState {
+            ingest_use_case: IngestReportUseCase::new(repos.archive, repos.queue, repos.project.clone()),
+            compression_semaphore: Arc::new(Semaphore::new(1)), pool,
+            project_repo: repos.project, project_cache: ProjectCache::new(Duration::from_secs(1)),
+            health_cache: Arc::new(RwLock::new(HealthStats::default())), health_cache_ttl: Duration::from_secs(1),
+            max_uncompressed_payload_bytes: 1024, session_repo: repos.session,
+            session_status_repo: repos.session_status, session_release_repo: repos.session_release,
+            session_environment_repo: repos.session_environment,
+        };
+        let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let body = Bytes::from(serde_json::json!({"event_id": id, "message": "test"}).to_string());
+        let response = store_report(State(state), Path(project_id), Query(SentryQueryParams { sentry_key: Some("test".to_owned()) }), HeaderMap::new(), body).await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["id"], id);
     }
 }

@@ -1,3 +1,5 @@
+use diesel::Connection;
+use sha2::{Digest, Sha256};
 use crate::shared::domain::{Archive, DomainError, QueueItem};
 use crate::shared::persistence::{
     ArchiveRepository, DbConnection, ProjectRepository, QueueRepository,
@@ -40,19 +42,18 @@ impl IngestReportUseCase {
             return Err(DomainError::ProjectNotFound(project_id));
         }
 
-        let archive_exists = self.archive_repo.exists(conn, &hash)?;
-
-        if !archive_exists {
+        // Content addressing is scoped to a project: two DSNs must never share ownership.
+        let mut scoped_hash = Sha256::new();
+        scoped_hash.update(project_id.to_be_bytes());
+        scoped_hash.update(hash.as_bytes());
+        let hash = hex::encode(scoped_hash.finalize());
+        conn.transaction(|conn| {
             let archive = Archive::new(hash.clone(), project_id, compressed_payload, original_size);
-            self.archive_repo.save(conn, &archive)?;
-
-            let queue_item = QueueItem::new(hash.clone());
-            self.queue_repo.enqueue(conn, &queue_item)?;
-        }
-
-        Ok(IngestResult {
-            hash,
-            duplicate: archive_exists,
+            let inserted = self.archive_repo.save(conn, &archive)?;
+            if inserted {
+                self.queue_repo.enqueue(conn, &QueueItem::new(hash.clone()))?;
+            }
+            Ok(IngestResult { hash, duplicate: !inserted })
         })
     }
 }

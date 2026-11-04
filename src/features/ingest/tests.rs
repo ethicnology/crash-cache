@@ -135,10 +135,10 @@ fn test_ingest_stores_archive() {
         )
         .unwrap();
 
-    assert_eq!(result_hash.hash, hash);
+    assert_ne!(result_hash.hash, hash);
     assert!(!result_hash.duplicate);
 
-    let archive = archive_repo.find_by_hash(&mut conn, &hash).unwrap();
+    let archive = archive_repo.find_by_hash(&mut conn, &result_hash.hash).unwrap();
     assert!(archive.is_some());
     assert_eq!(archive.unwrap().original_size, Some(original_size));
 
@@ -209,4 +209,20 @@ fn test_unknown_project_returns_error() {
     let result = use_case.execute(&mut conn, 999, hash, compressed, None);
 
     assert!(result.is_err());
+}
+
+#[test]
+fn protocol_identical_payloads_belong_to_each_project() {
+    let (repos, first_project, pool) = setup_test_db();
+    let second_project = repos.project.create(None, None).unwrap();
+    let archive_repo = repos.archive.clone();
+    let ingest = IngestReportUseCase::new(repos.archive, repos.queue, repos.project);
+    let (hash, compressed) = compress_and_hash(&sample_sentry_payload());
+    let mut conn = pool.get().unwrap();
+    let first = ingest.execute(&mut conn, first_project, hash.clone(), compressed.clone(), None).unwrap();
+    let second = ingest.execute(&mut conn, second_project, hash, compressed, None).unwrap();
+    assert!(!second.duplicate);
+    assert_ne!(first.hash, second.hash);
+    assert_eq!(archive_repo.find_by_hash(&mut conn, &first.hash).unwrap().unwrap().project_id, first_project);
+    assert_eq!(archive_repo.find_by_hash(&mut conn, &second.hash).unwrap().unwrap().project_id, second_project);
 }
