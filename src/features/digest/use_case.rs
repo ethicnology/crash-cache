@@ -101,6 +101,13 @@ impl DigestReportUseCase {
         // Try to parse as envelope first to extract session
         let session_id = self.extract_and_store_session(conn, &decompressed, archive.project_id)?;
 
+        if let Some(envelope) = Envelope::parse(&decompressed)
+            && envelope.find_event_payload().is_none()
+            && !envelope.find_session_payloads().is_empty()
+        {
+            return self.repos.queue.remove(conn, &item.archive_hash);
+        }
+
         // Try parsing as raw JSON first, then as envelope format
 
         let sentry_report = self.parse_payload(&decompressed)?;

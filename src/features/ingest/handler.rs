@@ -19,8 +19,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use crate::shared::domain::DomainError;
-use crate::shared::parser::{Envelope, SentrySession};
-use crate::shared::persistence::db::models::NewSessionModel;
+use crate::shared::parser::Envelope;
 use crate::shared::persistence::{
     DbPool, ProjectRepository, SessionRepository, UnwrapSessionEnvironmentRepository,
     UnwrapSessionReleaseRepository, UnwrapSessionStatusRepository,
@@ -330,67 +329,76 @@ async fn envelope_report(
         }
     };
 
-    let event_count = envelope.items.iter().filter(|item| item.header.item_type == "event").count();
+    let event_count = envelope
+        .items
+        .iter()
+        .filter(|item| item.header.item_type == "event")
+        .count();
     if event_count > 1 {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Envelope has multiple events"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":"Envelope has multiple events"})),
+        );
     }
     let has_event = event_count == 1;
-    if !has_event {
-        let payloads = envelope.find_session_payloads();
-        if payloads.is_empty() {
-            return (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(serde_json::json!({"error": "Unsupported envelope items; expected event or individual session"})),
-            );
-        }
-        let sessions = SentrySession::parse_batch(payloads);
-        let Some(sessions) = sessions else {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid session payload"})),
-            );
-        };
-        let result: Result<usize, DomainError> = conn.transaction(|conn| {
-            for session in &sessions {
-                store_session(&state, conn, project_id, session)?;
-            }
-            Ok(sessions.len())
-        });
-        return match result {
-            Ok(count) => (StatusCode::OK, Json(serde_json::json!({"sessions": count}))),
-            Err(error) => map_domain_error_to_response(&error),
-        };
+    let session_count = envelope.find_session_payloads().len();
+    if !has_event && session_count == 0 {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(
+                serde_json::json!({"error": "Unsupported envelope items; expected event or individual session"}),
+            ),
+        );
     }
 
-    let payload_id = envelope.find_event_payload()
-        .and_then(|payload| serde_json::from_slice::<serde_json::Value>(payload).ok())
-        .and_then(|event| event.get("event_id").cloned());
-    // A supplied invalid ID must not become an absent ID during fallback.
-    let normalize_id = |id: &str| {
-        uuid::Uuid::parse_str(id)
-            .map(|id| id.simple().to_string())
-            .map_err(|_| ())
+    let event_id = if has_event {
+        let payload_id = envelope
+            .find_event_payload()
+            .and_then(|payload| serde_json::from_slice::<serde_json::Value>(payload).ok())
+            .and_then(|event| event.get("event_id").cloned());
+        // A supplied invalid ID must not become an absent ID during fallback.
+        let normalize_id = |id: &str| {
+            uuid::Uuid::parse_str(id)
+                .map(|id| id.simple().to_string())
+                .map_err(|_| ())
+        };
+        let header_id = envelope
+            .header
+            .event_id
+            .as_deref()
+            .map(normalize_id)
+            .transpose();
+        let body_id = payload_id
+            .as_ref()
+            .map(|id| id.as_str().ok_or(()).and_then(normalize_id))
+            .transpose();
+        let (header_id, body_id) = match (header_id, body_id) {
+            (Ok(header_id), Ok(body_id)) => (header_id, body_id),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Invalid envelope or event event_id"})),
+                );
+            }
+        };
+        if header_id.is_some() && body_id.is_some() && header_id != body_id {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Envelope and event IDs differ"})),
+            );
+        }
+        let event_id = header_id.or(body_id);
+        if event_id.is_none() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Event or attachment requires a valid event_id"})),
+            );
+        }
+
+        event_id
+    } else {
+        None
     };
-    let header_id = envelope.header.event_id.as_deref()
-        .map(normalize_id)
-        .transpose();
-    let body_id = payload_id.as_ref()
-        .map(|id| id.as_str().ok_or(()).and_then(normalize_id))
-        .transpose();
-    let (header_id, body_id) = match (header_id, body_id) {
-        (Ok(header_id), Ok(body_id)) => (header_id, body_id),
-        _ => return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Invalid envelope or event event_id"})),
-        ),
-    };
-    if header_id.is_some() && body_id.is_some() && header_id != body_id {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Envelope and event IDs differ"})));
-    }
-    let event_id = header_id.or(body_id);
-    if has_event && event_id.is_none() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Event or attachment requires a valid event_id"})));
-    }
 
     match state.ingest_use_case.execute(
         &mut conn,
@@ -417,7 +425,13 @@ async fn envelope_report(
                     "Envelope OK"
                 );
             }
-            (StatusCode::OK, Json(serde_json::json!({"id": event_id})))
+            let response = if has_event {
+                serde_json::json!({"id": event_id})
+            } else {
+                // The count acknowledges archived items, not completed projections.
+                serde_json::json!({"sessions": session_count})
+            };
+            (StatusCode::OK, Json(response))
         }
         Err(e) => {
             let response = map_domain_error_to_response(&e);
@@ -432,54 +446,6 @@ async fn envelope_report(
             response
         }
     }
-}
-
-/// Stores a session and returns the session_id for linking with reports
-fn store_session(
-    state: &AppState,
-    conn: &mut crate::shared::persistence::DbConnection,
-    project_id: i32,
-    session: &SentrySession,
-) -> Result<i32, DomainError> {
-    // Get or create status ID
-    let status_id = state
-        .session_status_repo
-        .get_or_create(conn, &session.status)?;
-
-    // Get or create release ID (optional)
-    let release_id = match &session.attrs.release {
-        Some(r) => Some(state.session_release_repo.get_or_create(conn, r)?),
-        None => None,
-    };
-
-    // Get or create environment ID (optional)
-    let environment_id = match &session.attrs.environment {
-        Some(env) => Some(state.session_environment_repo.get_or_create(conn, env)?),
-        None => None,
-    };
-
-    let new_session = NewSessionModel {
-        project_id,
-        sid: session.sid.clone(),
-        init: if session.init { 1 } else { 0 },
-        started_at: session.started.clone(),
-        timestamp: session
-            .timestamp
-            .clone()
-            .unwrap_or_else(|| session.started.clone()),
-        errors: session.errors,
-        status_id,
-        release_id,
-        environment_id,
-        distinct_id: session.distinct_id_hash(),
-        sequence: session.sequence_decimal(),
-        duration: session.duration,
-        abnormal_mechanism: session.abnormal_mechanism.clone(),
-    };
-
-    let session_id = state.session_repo.upsert(conn, new_session)?;
-
-    Ok(session_id)
 }
 
 async fn prepare_payload(
