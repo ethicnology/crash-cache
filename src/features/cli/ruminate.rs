@@ -6,6 +6,7 @@ use diesel::sql_query;
 use crate::shared::persistence::DbPool;
 
 const TABLES_TO_CLEAR: &[&str] = &[
+    "archive_digest",
     "report_breadcrumb",
     "report_tag",
     "report_context",
