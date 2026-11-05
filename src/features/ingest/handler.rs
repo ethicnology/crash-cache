@@ -638,9 +638,19 @@ pub fn compute_health_stats(conn: &mut crate::shared::persistence::DbConnection)
         })
         .unwrap_or(0);
 
-    // Calculate orphaned instead of querying (much faster!)
-    // Orphaned = archives not in reports, queue, or queue_error
-    let orphaned = archives - reports - queue - regurgitated;
+    // Session-only archives complete without a report. Check ownership rather
+    // than subtracting overlapping counts of reports, queues and digest receipts.
+    let orphaned = sql_query(
+        "SELECT COUNT(*) as c FROM archive a
+         WHERE NOT EXISTS (SELECT 1 FROM archive_digest d WHERE d.archive_hash = a.hash)
+           AND NOT EXISTS (SELECT 1 FROM report r WHERE r.archive_hash = a.hash)
+           AND NOT EXISTS (SELECT 1 FROM queue q WHERE q.archive_hash = a.hash)
+           AND NOT EXISTS (SELECT 1 FROM queue_error e WHERE e.archive_hash = a.hash)"
+    )
+    .get_result::<Count>(conn)
+    .map(|r| r.c)
+    .map_err(|error| warn!(error = %error, "Failed to query orphaned archive count"))
+    .unwrap_or(0);
 
     HealthStats {
         archives,

@@ -1,4 +1,4 @@
-use diesel::Connection;
+use diesel::{Connection, RunQueryDsl};
 use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 
@@ -80,7 +80,14 @@ impl DigestReportUseCase {
             .get()
             .map_err(|e| DomainError::ConnectionPool(format!("Connection pool error: {}", e)))?;
 
-        conn.transaction(|conn| self.process_single_item_tx(conn, item))
+        conn.transaction(|conn| {
+            self.process_single_item_tx(conn, item)?;
+            diesel::sql_query("INSERT INTO archive_digest (archive_hash) VALUES ($1) ON CONFLICT DO NOTHING")
+                .bind::<diesel::sql_types::Text, _>(&item.archive_hash)
+                .execute(conn)
+                .map_err(|error| DomainError::Database(error.to_string()))?;
+            Ok(())
+        })
     }
 
     fn process_single_item_tx(

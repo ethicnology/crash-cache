@@ -25,3 +25,9 @@ BEGIN
 END $$;
 
 CREATE INDEX session_project_distinct_started_idx ON session(project_id, distinct_id, started_at);
+
+-- Session-only envelopes have no report row but still complete a digest pass.
+CREATE TABLE archive_digest (
+    archive_hash TEXT PRIMARY KEY REFERENCES archive(hash) ON DELETE CASCADE,
+    processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
