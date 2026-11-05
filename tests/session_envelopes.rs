@@ -86,10 +86,10 @@ impl Fixture {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let archives = self.archives();
-        assert_eq!(archives.len(), 1);
-        assert_eq!(
-            GzipCompressor::new().decompress(&archives[0].1).unwrap(),
-            bytes,
+        assert!(
+            archives.iter().any(|(_, payload)| {
+                GzipCompressor::new().decompress(payload).unwrap() == bytes
+            }),
             "the complete envelope must survive projection failures"
         );
         response.status()
@@ -216,4 +216,94 @@ async fn session_sql_failure_does_not_abort_event_or_other_sessions() {
     fixture.digest();
     assert_eq!(fixture.reports(), 1);
     assert_eq!(fixture.sessions(), 2);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL DATABASE_URL"]
+async fn session_only_statistics_can_be_rebuilt_from_archives() {
+    let fixture = Fixture::new();
+    fixture.send(&[valid_session()], false).await;
+    assert_eq!(
+        fixture.sessions(),
+        0,
+        "ingestion must archive before projecting"
+    );
+    assert_eq!(fixture.digest(), 1);
+    assert_eq!(fixture.sessions(), 1);
+    assert_eq!(fixture.reports(), 0);
+    use crash_cache::shared::persistence::db::schema::session;
+    diesel::delete(session::table.filter(session::project_id.eq(fixture.project)))
+        .execute(&mut fixture.pool.get().unwrap())
+        .unwrap();
+    fixture.replay();
+    assert_eq!(fixture.digest(), 1);
+    assert_eq!(
+        fixture.sessions(),
+        1,
+        "the archive must rebuild the session projection"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL DATABASE_URL"]
+async fn session_only_envelope_retains_uninterpretable_items_and_projects_valid_ones() {
+    let fixture = Fixture::new();
+    fixture
+        .send(&[json!({"unrecognized":"session"}), valid_session()], false)
+        .await;
+    assert_eq!(fixture.digest(), 1);
+    assert_eq!(fixture.sessions(), 1);
+    assert_eq!(fixture.reports(), 0);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL DATABASE_URL"]
+async fn archived_sessions_keep_the_highest_sequence_in_any_replay_order() {
+    let fixture = Fixture::new();
+    let mut newest = valid_session();
+    newest["seq"] = json!(10);
+    let mut oldest = newest.clone();
+    oldest["seq"] = json!(1);
+    oldest["status"] = json!("ok");
+    oldest["errors"] = json!(0);
+    fixture.send(&[newest.clone()], false).await;
+    fixture.digest();
+    fixture.send(&[oldest], false).await;
+    fixture.digest();
+    let check = || {
+        let row = fixture
+            .repos
+            .session
+            .find_by_sid(fixture.project, newest["sid"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.sequence, "10");
+        assert_eq!(row.errors, 1);
+    };
+    check();
+    assert_eq!(fixture.archives().len(), 2);
+    for (hash, _) in fixture.archives().into_iter().rev() {
+        fixture
+            .repos
+            .queue
+            .enqueue(&mut fixture.pool.get().unwrap(), &QueueItem::new(hash))
+            .unwrap();
+        fixture.digest();
+    }
+    check();
+    assert_eq!(fixture.sessions(), 1);
+    assert_eq!(fixture.reports(), 0);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL DATABASE_URL"]
+async fn wholly_uninterpretable_session_envelope_is_still_archived() {
+    let fixture = Fixture::new();
+    fixture
+        .send(&[json!({"future":"session format"})], false)
+        .await;
+    assert_eq!(fixture.archives().len(), 1);
+    assert_eq!(fixture.digest(), 1);
+    assert_eq!(fixture.sessions(), 0);
+    assert_eq!(fixture.reports(), 0);
 }
