@@ -364,10 +364,26 @@ async fn envelope_report(
 
     let payload_id = envelope.find_event_payload()
         .and_then(|payload| serde_json::from_slice::<serde_json::Value>(payload).ok())
-        .and_then(|event| event.get("event_id").and_then(|id| id.as_str()).map(str::to_owned));
-    let normalize_id = |id: &str| uuid::Uuid::parse_str(id).ok().map(|id| id.simple().to_string());
-    let header_id = envelope.header.event_id.as_deref().and_then(normalize_id);
-    let body_id = payload_id.as_deref().and_then(normalize_id);
+        .and_then(|event| event.get("event_id").cloned());
+    // A supplied invalid ID must not become an absent ID during fallback.
+    let normalize_id = |id: &str| {
+        uuid::Uuid::parse_str(id)
+            .map(|id| id.simple().to_string())
+            .map_err(|_| ())
+    };
+    let header_id = envelope.header.event_id.as_deref()
+        .map(normalize_id)
+        .transpose();
+    let body_id = payload_id.as_ref()
+        .map(|id| id.as_str().ok_or(()).and_then(normalize_id))
+        .transpose();
+    let (header_id, body_id) = match (header_id, body_id) {
+        (Ok(header_id), Ok(body_id)) => (header_id, body_id),
+        _ => return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid envelope or event event_id"})),
+        ),
+    };
     if header_id.is_some() && body_id.is_some() && header_id != body_id {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Envelope and event IDs differ"})));
     }
