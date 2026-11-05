@@ -1,6 +1,6 @@
 use diesel::Connection;
 use sha2::{Digest, Sha256};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::shared::compression::GzipCompressor;
 use crate::shared::domain::{DomainError, QueueItem, SentryBreadcrumb, SentryReport};
@@ -379,36 +379,61 @@ impl DigestReportUseCase {
 
         let mut stored_id = None;
         let single_session = session_payloads.len() == 1;
-        let sessions = SentrySession::parse_batch(session_payloads)
-            .ok_or_else(|| DomainError::InvalidRequest("Invalid session payload".into()))?;
+        let mut sessions: Vec<_> = session_payloads
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, payload)| {
+                let session = SentrySession::parse(payload);
+                if session.is_none() {
+                    warn!(
+                        project_id,
+                        index, "Session cannot be interpreted; keeping its archived payload"
+                    );
+                }
+                session
+            })
+            .collect();
+        sessions.sort_by(|left, right| left.sid.cmp(&right.sid));
         for session in sessions {
-            let status_id = self.repos.session_status.get_or_create(conn, &session.status)?;
-            let release_id = match &session.attrs.release {
-                Some(value) => Some(self.repos.session_release.get_or_create(conn, value)?),
-                None => None,
-            };
-            let environment_id = match &session.attrs.environment {
-                Some(value) => Some(self.repos.session_environment.get_or_create(conn, value)?),
-                None => None,
-            };
-            let new_session = NewSessionModel {
-                project_id,
-                sid: session.sid.clone(),
-                init: i32::from(session.init),
-                started_at: session.started.clone(),
-                timestamp: session.timestamp.clone().unwrap_or_else(|| session.started.clone()),
-                errors: session.errors,
-                status_id,
-                release_id,
-                environment_id,
-                distinct_id: session.distinct_id_hash(),
-                sequence: session.sequence_decimal(),
-                duration: session.duration,
-                abnormal_mechanism: session.abnormal_mechanism.clone(),
-            };
-            let id = self.repos.session.upsert(conn, new_session)?;
-            if single_session {
-                stored_id = Some(id);
+            // A savepoint isolates SQL failures as well as malformed payloads.
+            let result = conn.transaction(|conn| {
+                let status_id = self
+                    .repos
+                    .session_status
+                    .get_or_create(conn, &session.status)?;
+                let release_id = match &session.attrs.release {
+                    Some(value) => Some(self.repos.session_release.get_or_create(conn, value)?),
+                    None => None,
+                };
+                let environment_id = match &session.attrs.environment {
+                    Some(value) => Some(self.repos.session_environment.get_or_create(conn, value)?),
+                    None => None,
+                };
+                let new_session = NewSessionModel {
+                    project_id,
+                    sid: session.sid.clone(),
+                    init: i32::from(session.init),
+                    started_at: session.started.clone(),
+                    timestamp: session
+                        .timestamp
+                        .clone()
+                        .unwrap_or_else(|| session.started.clone()),
+                    errors: session.errors,
+                    status_id,
+                    release_id,
+                    environment_id,
+                    distinct_id: session.distinct_id_hash(),
+                    sequence: session.sequence_decimal(),
+                    duration: session.duration,
+                    abnormal_mechanism: session.abnormal_mechanism.clone(),
+                };
+                self.repos.session.upsert(conn, new_session)
+            });
+            match result {
+                Ok(id) if single_session => stored_id = Some(id),
+                Ok(_) => {}
+                Err(error) => warn!(project_id, sid = %session.sid, error = %error,
+                    "Session projection failed; keeping its archived payload for replay"),
             }
         }
         // An envelope may contain unrelated sessions; do not invent an event association.
