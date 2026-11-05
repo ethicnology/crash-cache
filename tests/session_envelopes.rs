@@ -56,25 +56,7 @@ impl Fixture {
         for session in sessions {
             append_item(&mut bytes, "session", session);
         }
-        let state = AppState {
-            ingest_use_case: IngestReportUseCase::new(
-                self.repos.archive.clone(),
-                self.repos.queue.clone(),
-                self.repos.project.clone(),
-            ),
-            compression_semaphore: Arc::new(Semaphore::new(1)),
-            pool: self.pool.clone(),
-            project_repo: self.repos.project.clone(),
-            project_cache: ProjectCache::new(Duration::from_secs(1)),
-            health_cache: Arc::new(RwLock::new(HealthStats::default())),
-            health_cache_ttl: Duration::from_secs(1),
-            max_uncompressed_payload_bytes: 4096,
-            session_repo: self.repos.session.clone(),
-            session_status_repo: self.repos.session_status.clone(),
-            session_release_repo: self.repos.session_release.clone(),
-            session_environment_repo: self.repos.session_environment.clone(),
-        };
-        let response = create_api_router(state)
+        let response = create_api_router(self.state())
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -93,6 +75,48 @@ impl Fixture {
             "the complete envelope must survive projection failures"
         );
         response.status()
+    }
+
+    fn state(&self) -> AppState {
+        AppState {
+            ingest_use_case: IngestReportUseCase::new(
+                self.repos.archive.clone(),
+                self.repos.queue.clone(),
+                self.repos.project.clone(),
+            ),
+            compression_semaphore: Arc::new(Semaphore::new(1)),
+            pool: self.pool.clone(),
+            project_repo: self.repos.project.clone(),
+            project_cache: ProjectCache::new(Duration::from_secs(1)),
+            health_cache: Arc::new(RwLock::new(HealthStats::default())),
+            health_cache_ttl: Duration::from_secs(1),
+            max_uncompressed_payload_bytes: 4096,
+            session_repo: self.repos.session.clone(),
+            session_status_repo: self.repos.session_status.clone(),
+            session_release_repo: self.repos.session_release.clone(),
+            session_environment_repo: self.repos.session_environment.clone(),
+        }
+    }
+
+    async fn orphaned(&self) -> i64 {
+        use crash_cache::features::ingest::{compute_health_stats, create_health_router};
+        let state = self.state();
+        *state.health_cache.write().unwrap() = compute_health_stats(&mut self.pool.get().unwrap());
+        let response = create_health_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        serde_json::from_slice::<Value>(&bytes).unwrap()["stats"]["orphaned"]
+            .as_i64()
+            .unwrap()
     }
 
     fn archives(&self) -> Vec<(String, Vec<u8>)> {
@@ -306,4 +330,14 @@ async fn wholly_uninterpretable_session_envelope_is_still_archived() {
     assert_eq!(fixture.digest(), 1);
     assert_eq!(fixture.sessions(), 0);
     assert_eq!(fixture.reports(), 0);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL DATABASE_URL"]
+async fn processed_session_archives_are_not_reported_as_orphaned() {
+    let fixture = Fixture::new();
+    let before = fixture.orphaned().await;
+    fixture.send(&[valid_session()], false).await;
+    fixture.digest();
+    assert_eq!(fixture.orphaned().await, before);
 }
