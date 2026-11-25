@@ -1,4 +1,5 @@
 mod handler;
+mod metrics;
 mod use_case;
 
 #[cfg(test)]

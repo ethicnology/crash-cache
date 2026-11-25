@@ -191,6 +191,16 @@ impl AnalyticsRepository {
         Ok(total)
     }
 
+    pub fn cleanup_metrics(&self) -> Result<(), diesel::result::Error> {
+        let mut conn = self.pool.get().map_err(|_| diesel::result::Error::BrokenTransactionManager)?;
+        conn.transaction::<(), diesel::result::Error, _>(|conn| {
+            diesel::sql_query("SELECT pg_advisory_xact_lock(733240121)").execute(conn)?;
+            diesel::sql_query("DELETE FROM metric_replay WHERE expires_at < (NOW() AT TIME ZONE 'UTC')").execute(conn)?;
+            diesel::sql_query("DELETE FROM metric_hour WHERE bucket_start < date_trunc('hour', (NOW() AT TIME ZONE 'UTC') - interval '30 days')").execute(conn)?;
+            Ok(())
+        })
+    }
+
     fn ip_to_subnet(ip: &str) -> String {
         let parts: Vec<&str> = ip.split('.').collect();
         if parts.len() >= 3 {

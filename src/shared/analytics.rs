@@ -206,6 +206,9 @@ impl AnalyticsCollector {
     }
 
     fn cleanup_old_data(repo: &AnalyticsRepository, retention_days: i64) {
+        if let Err(e) = repo.cleanup_metrics() {
+            warn!(error = %e, "Failed to cleanup metrics");
+        }
         match repo.cleanup_old_buckets(retention_days) {
             Ok(deleted) if deleted > 0 => {
                 info!(deleted = deleted, "Cleaned up old analytics buckets");
