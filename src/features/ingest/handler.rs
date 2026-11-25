@@ -329,6 +329,24 @@ async fn envelope_report(
         }
     };
 
+    if envelope.items.iter().any(|item| item.header.item_type == "trace_metric") {
+        return match super::metrics::ingest(&mut conn, project_id, &compute_hash(&decompressed), &envelope) {
+            Ok(_) => (StatusCode::OK, Json(serde_json::json!({"metrics": "accepted"}))),
+            Err(super::metrics::MetricError::Invalid) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Invalid or mixed metrics envelope"})),
+            ),
+            Err(super::metrics::MetricError::SeriesLimit) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({"error": "Metric hourly series limit exceeded"})),
+            ),
+            Err(super::metrics::MetricError::Database) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "Database temporarily unavailable"})),
+            ),
+        };
+    }
+
     let event_count = envelope
         .items
         .iter()

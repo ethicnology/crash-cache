@@ -294,6 +294,8 @@ When using Docker Compose, Metabase is automatically deployed for analytics dash
 
 The `metabase_readonly` user has SELECT-only access to the crash_cache database for security.
 
+For the restricted BULL metrics envelope contract, retention and Metabase SQL, see [docs/metrics.md](docs/metrics.md).
+
 **Example dashboards you can build:**
 - Error rate by project/platform/version over time
 - Top issues by event count
